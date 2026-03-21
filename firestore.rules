@@ -46,13 +46,22 @@ service cloud.firestore {
     
     match /settings/{docId} {
       allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow write: if isAdmin() || isKeHoach(); 
     }
     
-    match /reports/{docId} {
+    match /dailyReports/{docId} {
       allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated() && canEditReport(request.resource.data.departmentId);
-      allow delete: if isAdmin() || isKeHoach(); 
+      allow create: if isAuthenticated() && canEditReport(request.resource.data.departmentId);
+      // For updates, ensure the user has access to BOTH the current department and the new department (even though department shouldn't change)
+      // Note: when unlocking/locking, KeHoach updates reports for various departments. Their canEditReport will return true because isKeHoach() is true.
+      allow update: if isAuthenticated() && canEditReport(resource.data.departmentId) && canEditReport(request.resource.data.departmentId);
+      allow delete: if isAdmin(); 
+    }
+    
+    match /auditLogs/{docId} {
+      allow read: if isAdmin() || isKeHoach();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin();
     }
     
     match /{document=**} {
