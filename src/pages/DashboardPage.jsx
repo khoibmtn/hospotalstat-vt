@@ -243,8 +243,8 @@ export default function DashboardPage() {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {todayReports.map((report) => (
-                    <tr key={report.id} className="bg-white hover:bg-blue-50/40 transition-colors group">
-                      <td className="px-4 py-2.5 font-medium border-r border-slate-200 whitespace-nowrap text-slate-900 group-hover:bg-blue-50/40 transition-colors">
+                    <tr key={report.id} className="group bg-white even:bg-slate-50 border-b border-slate-200 hover:bg-slate-200 transition-colors">
+                      <td className="px-4 py-2.5 font-medium border-r border-slate-200 whitespace-nowrap text-slate-900 transition-colors">
                         {report.departmentName}
                       </td>
                       {INPATIENT_FIELDS.map((f) => (

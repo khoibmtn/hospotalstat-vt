@@ -225,8 +225,8 @@ export default function LockManagementPage() {
                     </tr>
                   ) : (
                     reports.map((r) => (
-                      <tr key={r.id} className="bg-white hover:bg-slate-50 transition-colors">
-                        <td className="px-4 py-3 font-medium text-slate-900">{r.departmentName}</td>
+                    <tr key={r.id} className="group bg-white even:bg-slate-50 border-b border-slate-200 hover:bg-slate-200 transition-colors">
+                      <td className="px-4 py-3 font-medium text-slate-900">{r.departmentName}</td>
                         <td className="px-4 py-3 text-center">
                           {r.status === REPORT_STATUS.LOCKED ? (
                             <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 gap-1 pl-1.5 pr-2 w-[85px] justify-center shadow-none">

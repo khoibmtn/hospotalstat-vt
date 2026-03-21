@@ -288,3 +288,96 @@ export async function initializeDepartmentReportsForMonth(dateStr, department) {
   }
   return created;
 }
+
+/**
+ * Import multiple reports for a department and handle cascading from the last imported day
+ */
+export async function importReports(departmentId, departmentName, facilityId, records, userObj) {
+  if (!records || records.length === 0) return 0;
+  
+  // Sort records by date ascending to ensure we know the 'last' day
+  const sortedRecords = [...records].sort((a, b) => a.date.localeCompare(b.date));
+  const lastRecord = sortedRecords[sortedRecords.length - 1];
+  
+  // 1. Find the old bnHienTai for the last record's date (to calculate cascade diff)
+  const lastDocId = getReportDocId(lastRecord.date, departmentId);
+  const oldLastSnap = await getDoc(doc(db, 'dailyReports', lastDocId));
+  const oldLastBnHienTai = oldLastSnap.exists() ? (oldLastSnap.data().bnHienTai || 0) : 0;
+  
+  const diff = lastRecord.bnHienTai - oldLastBnHienTai;
+
+  // 2. Write the imported records in a batch
+  const importBatch = writeBatch(db);
+  
+  for (const record of sortedRecords) {
+    const docId = getReportDocId(record.date, departmentId);
+    
+    const reportData = {
+      date: record.date,
+      departmentId,
+      departmentName,
+      facilityId,
+      reportedBy: userObj.nickname || '',
+      bnCu: Number(record.bnCu) || 0,
+      vaoVien: Number(record.vaoVien) || 0,
+      chuyenDen: Number(record.chuyenDen) || 0,
+      chuyenDi: Number(record.chuyenDi) || 0,
+      raVien: Number(record.raVien) || 0,
+      tuVong: Number(record.tuVong) || 0,
+      chuyenVien: Number(record.chuyenVien) || 0,
+      bnHienTai: Number(record.bnHienTai) || 0,
+      updatedAt: serverTimestamp(),
+      updatedBy: userObj.uid,
+      updatedByName: userObj.displayName || userObj.email,
+    };
+    
+    // We use merge: true so we don't accidentally overwrite createdAt, lockedAt, or status
+    importBatch.set(doc(db, 'dailyReports', docId), reportData, { merge: true });
+    
+    // Log
+    const logRef = doc(collection(db, 'auditLogs'));
+    importBatch.set(logRef, {
+      action: 'IMPORT_DAILY_REPORT',
+      date: record.date,
+      departmentId,
+      departmentName,
+      userId: userObj.uid || '',
+      nickname: userObj.nickname || '',
+      timestamp: serverTimestamp(),
+      details: {
+        new: reportData
+      }
+    });
+  }
+
+  await importBatch.commit();
+
+  // 3. If there is a diff on the last day, cascade it forward
+  if (diff !== 0) {
+    const cascadeBatch = writeBatch(db);
+    const q = query(
+      collection(db, 'dailyReports'),
+      where('departmentId', '==', departmentId),
+      where('date', '>', lastRecord.date),
+      orderBy('date', 'asc')
+    );
+    const snap = await getDocs(q);
+    
+    let hasUpdates = false;
+    snap.docs.forEach((d) => {
+      hasUpdates = true;
+      const subsequentData = d.data();
+      cascadeBatch.update(d.ref, {
+        bnCu: (subsequentData.bnCu || 0) + diff,
+        bnHienTai: (subsequentData.bnHienTai || 0) + diff,
+        updatedAt: serverTimestamp(),
+      });
+    });
+    
+    if (hasUpdates) {
+      await cascadeBatch.commit();
+    }
+  }
+
+  return sortedRecords.length;
+}

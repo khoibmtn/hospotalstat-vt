@@ -12,7 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Save, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Loader2, Save, FileText, CheckCircle2, AlertCircle, Lock } from 'lucide-react';
 
 export default function DataEntryPage() {
   const { user } = useAuth();
@@ -145,6 +145,20 @@ export default function DataEntryPage() {
 
       return newState;
     });
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const inputs = Array.from(document.querySelectorAll('input[type="number"]'));
+      const currentIndex = inputs.indexOf(e.target);
+      if (currentIndex !== -1 && currentIndex < inputs.length - 1) {
+        inputs[currentIndex + 1].focus();
+        inputs[currentIndex + 1].select();
+      } else {
+        e.target.blur();
+      }
+    }
   };
 
   const handleAutoSaveRow = async (date) => {
@@ -363,7 +377,7 @@ export default function DataEntryPage() {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <Select value={selectedDeptId} onValueChange={handleDeptSelect}>
-            <SelectTrigger className="w-full md:w-[240px] bg-white border-slate-200">
+            <SelectTrigger className="w-full md:w-[240px] bg-white border border-slate-300 rounded-md shadow-sm hover:border-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all">
               <SelectValue placeholder="Chọn Khoa/Phòng" />
             </SelectTrigger>
             <SelectContent>
@@ -398,16 +412,16 @@ export default function DataEntryPage() {
           ) : (
             <div className="flex-1 overflow-auto bg-white rounded-b-xl border-t border-slate-100">
               <table className="w-full text-sm text-left border-collapse tabular-nums">
-                <thead className="text-xs text-slate-600 uppercase bg-slate-50/95 backdrop-blur sticky top-0 z-20 shadow-sm border-b border-slate-200 shadow-[0_1px_2px_-1px_rgba(0,0,0,0.1)]">
+                <thead className="text-xs text-white uppercase bg-blue-600 sticky top-0 z-20 shadow-md">
                   <tr>
-                    <th className="px-3 py-3 font-semibold border-r border-slate-200 sticky left-0 z-30 bg-slate-50 min-w-[100px] shadow-[1px_0_0_0_#e2e8f0]">Ngày</th>
-                    <th className="px-2 py-3 font-semibold border-r border-slate-200 min-w-[90px] text-center">Trạng thái</th>
+                    <th className="px-3 py-3 font-semibold border-r border-blue-500 sticky left-0 z-30 bg-blue-600 min-w-[100px] shadow-[1px_0_0_0_#3b82f6]">Ngày</th>
+                    <th className="px-2 py-3 font-semibold border-r border-blue-500 min-w-[90px] text-center">Trạng thái</th>
                     {INPATIENT_FIELDS.map((f) => (
-                      <th key={f.key} className="px-2 py-3 font-semibold border-r border-slate-200 min-w-[70px] text-center">
+                      <th key={f.key} className="px-2 py-3 font-semibold border-r border-blue-500 min-w-[70px] text-center">
                         {f.label}
                       </th>
                     ))}
-                    <th className="px-3 py-3 font-semibold border-slate-200 min-w-[80px] text-center">Thao tác</th>
+                    <th className="px-3 py-3 font-semibold border-blue-500 min-w-[80px] text-center">Thao tác</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -415,11 +429,11 @@ export default function DataEntryPage() {
                     const report = monthReports[dateStr] || {};
                     const isLocked = report.status === REPORT_STATUS.LOCKED;
                     const editable = canEdit(report);
-                    const rowClass = editable ? 'bg-white hover:bg-blue-50/40 transition-colors group' : 'bg-slate-50 text-slate-500';
+                    const rowClass = editable ? 'bg-white group even:bg-slate-50 odd:bg-white hover:bg-slate-200 focus-within:bg-blue-100 focus-within:hover:bg-blue-100 transition-colors' : 'bg-slate-50 text-slate-500';
 
                     return (
-                      <tr key={dateStr} className={rowClass}>
-                        <td className="px-3 py-2 font-medium border-r border-slate-200 sticky left-0 z-10 bg-inherit shadow-[1px_0_0_0_#e2e8f0] tabular-nums whitespace-nowrap text-slate-900 group-hover:bg-blue-50/40 transition-colors">
+                      <tr key={dateStr} className={`${rowClass} border-b border-slate-200`}>
+                        <td className={`px-3 py-2 font-medium border-r border-slate-200 sticky left-0 z-10 tabular-nums whitespace-nowrap text-slate-900 transition-colors shadow-[1px_0_0_0_#e2e8f0] ${editable ? 'bg-white group-even:bg-slate-50 group-hover:bg-slate-200 group-focus-within:bg-blue-100 group-focus-within:hover:bg-blue-100' : 'bg-slate-50'}`}>
                           {formatDisplayDate(dateStr)}
                         </td>
                         <td className="px-2 py-2 border-r border-slate-100 text-center">
@@ -438,12 +452,14 @@ export default function DataEntryPage() {
                                   type="number"
                                   min="0"
                                   aria-label={`Nhập ${field.label} ngày ${formatDisplayDate(dateStr)}`}
-                                  className="w-full h-8 px-1 text-center bg-transparent border-b-2 border-transparent hover:border-slate-300 rounded-none focus:outline-none focus:bg-blue-50 focus:border-blue-500 transition-all tabular-nums text-slate-900 font-medium"
+                                  className="w-full h-8 px-1 text-center bg-white border border-slate-300 rounded-md shadow-sm hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all tabular-nums text-slate-900 font-medium"
                                   value={report[field.key] ?? 0}
                                   onChange={(e) =>
                                     handleFieldChange(dateStr, field.key, e.target.value)
                                   }
                                   onBlur={() => handleAutoSaveRow(dateStr)}
+                                  onKeyDown={handleKeyDown}
+                                  onFocus={(e) => e.target.select()}
                                 />
                               </div>
                             ) : (
@@ -454,13 +470,14 @@ export default function DataEntryPage() {
                         <td className="px-2 py-2 text-center align-middle">
                           {editable ? (
                             <Button
-                              variant="ghost"
+                              variant="secondary"
                               size="sm"
-                              className="h-7 text-xs font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                              className="h-8 w-8 p-0 text-blue-600 bg-white hover:bg-blue-600 hover:text-white shadow-sm border border-slate-300 group-hover:border-blue-200 transition-all"
                               onClick={() => handleSaveRow(dateStr)}
                               disabled={saving[dateStr]}
+                              title="Lưu dòng này"
                             >
-                              {saving[dateStr] ? <Loader2 className="h-3 w-3 animate-spin"/> : 'Lưu'}
+                              {saving[dateStr] ? <Loader2 className="h-4 w-4 animate-spin"/> : <Save className="h-4 w-4" />}
                             </Button>
                           ) : (
                             <span className="text-xs text-slate-400">
@@ -472,17 +489,17 @@ export default function DataEntryPage() {
                     );
                   })}
                 </tbody>
-                <tfoot className="sticky bottom-0 z-20 bg-slate-50 shadow-[0_-1px_2px_-1px_rgba(0,0,0,0.1)] border-t border-slate-200">
-                  <tr className="font-semibold text-slate-800">
-                    <td colSpan="2" className="px-3 py-3 text-right uppercase text-xs border-r border-slate-200 sticky left-0 z-10 bg-slate-50 shadow-[1px_0_0_0_#e2e8f0]">
+                <tfoot className="sticky bottom-0 z-20 bg-blue-100 shadow-[0_-1px_2px_-1px_rgba(0,0,0,0.1)] border-t-2 border-blue-200">
+                  <tr className="font-bold text-blue-900">
+                    <td colSpan="2" className="px-3 py-4 text-right uppercase text-[13px] border-r border-blue-200 sticky left-0 z-10 bg-blue-100 shadow-[1px_0_0_0_#bfdbfe]">
                       Tổng cộng (Tháng):
                     </td>
                     {INPATIENT_FIELDS.map((field) => (
-                      <td key={'total_' + field.key} className="px-2 py-3 text-center border-r border-slate-200 text-blue-700">
+                      <td key={'total_' + field.key} className="px-2 py-4 text-center border-r border-blue-200 text-blue-700 text-base">
                         {totals[field.key]}
                       </td>
                     ))}
-                    <td className="px-3 py-3"></td>
+                    <td className="px-3 py-4 text-center"></td>
                   </tr>
                 </tfoot>
               </table>

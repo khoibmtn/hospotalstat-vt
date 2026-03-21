@@ -11,11 +11,11 @@ service cloud.firestore {
     }
     
     function isAdmin() {
-      return isAuthenticated() && getUserData().role == 'ADMIN';
+      return isAuthenticated() && getUserData().role == 'admin';
     }
     
     function isKeHoach() {
-      return isAuthenticated() && getUserData().role == 'KEHOACH';
+      return isAuthenticated() && getUserData().role == 'kehoach';
     }
     
     function isAdminOrKeHoach() {
@@ -23,7 +23,11 @@ service cloud.firestore {
     }
     
     function hasDepartmentAccess(deptId) {
-      return isAuthenticated() && getUserData().departmentId == deptId;
+      let data = getUserData();
+      return isAuthenticated() && (
+        ('primaryDepartmentId' in data && data.primaryDepartmentId == deptId) ||
+        ('additionalDepartments' in data && deptId in data.additionalDepartments)
+      );
     }
     
     function canEditReport(deptId) {
@@ -55,8 +59,7 @@ service cloud.firestore {
     match /dailyReports/{docId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && canEditReport(request.resource.data.departmentId);
-      // For updates, ensure the user has access to BOTH the current department and the new department
-      allow update: if isAuthenticated() && canEditReport(resource.data.departmentId) && canEditReport(request.resource.data.departmentId) && (isAdminOrKeHoach() || resource.data.locked == false);
+      allow update: if isAuthenticated() && canEditReport(resource.data.departmentId) && canEditReport(request.resource.data.departmentId) && (isAdminOrKeHoach() || (!('status' in resource.data) && !('locked' in resource.data)) || resource.data.status != 'locked' && resource.data.locked != true);
       allow delete: if isAdmin(); 
     }
     

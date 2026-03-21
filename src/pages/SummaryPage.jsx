@@ -213,8 +213,8 @@ export default function SummaryPage() {
                   </tr>
                 )}
                 {summaryData.length > 0 && summaryData.map((row, idx) => (
-                  <tr key={idx} className="bg-white hover:bg-blue-50/40 transition-colors group">
-                    <td className="px-4 py-2.5 font-medium border-r border-slate-200 sticky left-0 z-10 bg-inherit shadow-[1px_0_0_0_#e2e8f0] whitespace-nowrap text-slate-900 group-hover:bg-blue-50/40 transition-colors">
+                  <tr key={idx} className="group bg-white even:bg-slate-50 border-b border-slate-200 hover:bg-slate-200 transition-colors">
+                    <td className="px-4 py-2.5 font-medium border-r border-slate-200 sticky left-0 z-10 tabular-nums whitespace-nowrap text-slate-900 transition-colors shadow-[1px_0_0_0_#e2e8f0] bg-white group-even:bg-slate-50 group-hover:bg-slate-200">
                       {viewMode === 'hospital' ? row.departmentName : (row.date ? formatDisplayDate(row.date) : '')}
                     </td>
                     {INPATIENT_FIELDS.map((f) => (

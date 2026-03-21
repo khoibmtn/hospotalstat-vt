@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { getSettings, updateSettings } from '../services/settingsService';
 import { getFacilities, getDepartments, saveFacility, deleteFacility, saveDepartment, deleteDepartment } from '../services/departmentService';
 import { getAllUsers, updateUser, deleteUser as deleteUserService, resetUserPassword } from '../services/authService';
+import { importReports } from '../services/reportService';
 import { ROLE_LABELS, ROLES, POSITIONS, TITLES } from '../utils/constants';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -14,7 +15,8 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 
-import { Settings, Building2, Layers, Users, Plus, Trash2, Edit2, ShieldAlert, KeyRound, Loader2, Save, X, ShieldCheck } from 'lucide-react';
+import { Settings, Building2, Layers, Users, Plus, Trash2, Edit2, ShieldAlert, KeyRound, Loader2, Save, X, ShieldCheck, Upload } from 'lucide-react';
+import ImportDataModal from '../components/data-entry/ImportDataModal';
 
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -25,6 +27,7 @@ export default function SettingsPage() {
   const [users, setUsers] = useState([]);
   const [toast, setToast] = useState(null);
   const [editingUser, setEditingUser] = useState(null);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   function showToast(msg, type = 'success') {
     setToast({ msg, type });
@@ -162,6 +165,20 @@ export default function SettingsPage() {
     { key: 'users', label: 'Người dùng', icon: <Users className="w-4 h-4 mr-2" /> },
   ];
 
+  const handleImportConfirm = async (deptId, records) => {
+    try {
+      const dept = departments.find(d => d.id === deptId);
+      if (!dept) throw new Error("Khoa không hợp lệ");
+      
+      const count = await importReports(deptId, dept.name, dept.facilityId, records, user);
+      showToast(`Đã import thành công ${count} dòng.`, 'success');
+      setIsImportModalOpen(false);
+    } catch (err) {
+      console.error(err);
+      throw err; // let Modal catch and show error
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-slate-50/50 p-4 md:p-6 pb-24 overflow-x-hidden">
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4 shrink-0">
@@ -222,6 +239,27 @@ export default function SettingsPage() {
                     className="data-[state=checked]:bg-blue-600"
                   />
                 </div>
+
+                {user.role === ROLES.ADMIN && (
+                  <>
+                    <div className="h-px w-full bg-slate-100 my-6"></div>
+
+                    <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
+                      <div className="space-y-0.5">
+                        <Label className="text-base font-semibold text-slate-800">Import số liệu từ Excel</Label>
+                        <p className="text-sm text-slate-500">Tải số liệu báo cáo hàng ngày từ file Excel mẫu vào hệ thống.</p>
+                      </div>
+                      <Button 
+                        variant="outline"
+                        onClick={() => setIsImportModalOpen(true)}
+                        className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 bg-white"
+                      >
+                        <Upload className="w-4 h-4 mr-2" />
+                        Import Excel
+                      </Button>
+                    </div>
+                  </>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -268,7 +306,7 @@ export default function SettingsPage() {
                         </tr>
                       ) : (
                         facilities.map((f) => (
-                          <tr key={f.id} className="hover:bg-slate-50 transition-colors group">
+                          <tr key={f.id} className="group bg-white even:bg-slate-50 border-b border-slate-200 hover:bg-slate-200 transition-colors">
                             <td className="px-6 py-4 font-medium text-slate-900">{f.name}</td>
                             <td className="px-6 py-4 text-center text-slate-600">
                               <Badge variant="secondary" className="bg-slate-100 text-slate-700">{departments.filter((d) => d.facilityId === f.id).length} khoa</Badge>
@@ -394,7 +432,7 @@ export default function SettingsPage() {
                         </tr>
                       ) : (
                         users.map((u) => (
-                          <tr key={u.uid} className="hover:bg-slate-50/80 transition-colors align-top">
+                          <tr key={u.uid} className="group bg-white even:bg-slate-50 border-b border-slate-200 hover:bg-slate-200 focus-within:bg-blue-100 transition-colors align-top">
                             <td className="px-5 py-4">
                               <div className="flex flex-col">
                                 <span className="font-semibold text-slate-900">{u.displayName}</span>
@@ -679,6 +717,14 @@ export default function SettingsPage() {
           </button>
         </div>
       )}
+
+      {/* Import Modal */}
+      <ImportDataModal 
+        isOpen={isImportModalOpen} 
+        onClose={() => setIsImportModalOpen(false)} 
+        departments={departments}
+        onImportConfirm={handleImportConfirm}
+      />
     </div>
   );
 }
