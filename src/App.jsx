@@ -15,10 +15,10 @@ function ProtectedRoute({ children, allowedRoles }) {
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '2.5rem', marginBottom: '12px' }}>🏥</div>
-          <div style={{ color: 'var(--text-secondary)' }}>Đang tải...</div>
+      <div className="flex items-center justify-center min-h-screen bg-slate-50">
+        <div className="text-center animate-pulse">
+          <div className="text-4xl mb-3">🏥</div>
+          <div className="text-slate-500 font-medium">Đang tải...</div>
         </div>
       </div>
     );
@@ -27,14 +27,17 @@ function ProtectedRoute({ children, allowedRoles }) {
   if (!user) return <Navigate to="/login" replace />;
   if (!user.approved) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', padding: '20px' }}>
-        <div className="card" style={{ textAlign: 'center', maxWidth: '400px' }}>
-          <div style={{ fontSize: '2.5rem', marginBottom: '12px' }}>⏳</div>
-          <h2 style={{ marginBottom: '8px' }}>Chờ phê duyệt</h2>
-          <p style={{ color: 'var(--text-secondary)', marginBottom: '16px' }}>
+      <div className="flex items-center justify-center min-h-screen p-5 bg-slate-50">
+        <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-100 text-center max-w-md w-full">
+          <div className="text-4xl mb-3">⏳</div>
+          <h2 className="text-xl font-bold mb-2 text-slate-900">Chờ phê duyệt</h2>
+          <p className="text-slate-500 mb-6">
             Tài khoản của bạn đang chờ quản trị viên phê duyệt.
           </p>
-          <button className="btn btn-secondary" onClick={() => window.location.reload()}>
+          <button 
+            className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium py-2 px-4 rounded-md transition-colors" 
+            onClick={() => window.location.reload()}
+          >
             Kiểm tra lại
           </button>
         </div>

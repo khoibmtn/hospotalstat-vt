@@ -11,20 +11,23 @@ service cloud.firestore {
     }
     
     function isAdmin() {
-      return isAuthenticated() && getUserData().role == 'admin';
+      return isAuthenticated() && getUserData().role == 'ADMIN';
     }
     
     function isKeHoach() {
-      return isAuthenticated() && getUserData().role == 'kehoach';
+      return isAuthenticated() && getUserData().role == 'KEHOACH';
+    }
+    
+    function isAdminOrKeHoach() {
+      return isAdmin() || isKeHoach();
     }
     
     function hasDepartmentAccess(deptId) {
-      let deptIds = getUserData().get('departmentIds', []);
-      return isAuthenticated() && (deptId in deptIds);
+      return isAuthenticated() && getUserData().departmentId == deptId;
     }
     
     function canEditReport(deptId) {
-      return isAdmin() || isKeHoach() || hasDepartmentAccess(deptId);
+      return isAdminOrKeHoach() || hasDepartmentAccess(deptId);
     }
 
     match /facilities/{docId} {
@@ -52,9 +55,8 @@ service cloud.firestore {
     match /dailyReports/{docId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && canEditReport(request.resource.data.departmentId);
-      // For updates, ensure the user has access to BOTH the current department and the new department (even though department shouldn't change)
-      // Note: when unlocking/locking, KeHoach updates reports for various departments. Their canEditReport will return true because isKeHoach() is true.
-      allow update: if isAuthenticated() && canEditReport(resource.data.departmentId) && canEditReport(request.resource.data.departmentId);
+      // For updates, ensure the user has access to BOTH the current department and the new department
+      allow update: if isAuthenticated() && canEditReport(resource.data.departmentId) && canEditReport(request.resource.data.departmentId) && (isAdminOrKeHoach() || resource.data.locked == false);
       allow delete: if isAdmin(); 
     }
     

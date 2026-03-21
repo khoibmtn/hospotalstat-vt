@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useEffect } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db, isFirebaseConfigured } from '../config/firebase';
@@ -50,6 +51,7 @@ export function AuthProvider({ children }) {
       unsubscribeAuth();
       if (unsubscribeDoc) unsubscribeDoc();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

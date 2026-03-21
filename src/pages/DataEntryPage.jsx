@@ -8,6 +8,12 @@ import { computeBnHienTai } from '../utils/computedColumns';
 import { getCurrentReportDate, formatDisplayDate, getDaysInMonthUpTo } from '../utils/dateUtils';
 import { INPATIENT_FIELDS, REPORT_STATUS, ROLES } from '../utils/constants';
 
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Loader2, Save, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
+
 export default function DataEntryPage() {
   const { user } = useAuth();
   
@@ -108,8 +114,7 @@ export default function DataEntryPage() {
     fetchMonthData();
   }, [selectedDeptId, reportDate, departments, showToast]);
 
-  const handleDeptSelect = (e) => {
-    const val = e.target.value;
+  const handleDeptSelect = (val) => {
     setSelectedDeptId(val);
     localStorage.setItem('lastSelectedDept', val);
   };
@@ -324,10 +329,10 @@ export default function DataEntryPage() {
 
   if (initLoading) {
     return (
-      <div className="app-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '2rem', marginBottom: '8px' }}>⏳</div>
-          <div>Đang khởi tạo ứng dụng...</div>
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-center text-slate-500 animate-pulse">
+          <Loader2 className="h-10 w-10 animate-spin mx-auto mb-4 text-blue-500" />
+          <div className="font-medium">Đang khởi tạo ứng dụng...</div>
         </div>
       </div>
     );
@@ -335,120 +340,130 @@ export default function DataEntryPage() {
 
   if (departments.length === 0) {
     return (
-      <div className="app-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
-        <div className="card" style={{ padding: 'var(--space-6)', textAlign: 'center', maxWidth: '400px' }}>
-          <h3>Không có quyền truy cập</h3>
-          <p className="text-muted">Bạn chưa được phân quyền nhập liệu cho khoa nào.</p>
-        </div>
+      <div className="flex items-center justify-center min-h-[60vh] p-4">
+        <Card className="max-w-md w-full text-center p-8 shadow-sm">
+          <div className="mx-auto w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mb-4">
+            <Lock className="w-6 h-6 text-slate-400" />
+          </div>
+          <h3 className="text-xl font-bold text-slate-800 mb-2">Không có quyền truy cập</h3>
+          <p className="text-slate-500">Bạn chưa được phân quyền nhập liệu cho khoa nào.</p>
+        </Card>
       </div>
     );
   }
 
   return (
-    <>
-      <header className="app-header">
-        <div className="app-header__left">
-          <h1 className="app-header__title">📝 Nhập số liệu nội trú</h1>
+    <div className="flex flex-col h-full bg-slate-50/50 p-4 md:p-6 pb-24 overflow-x-hidden">
+      <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4 shrink-0">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
+            <FileText className="w-6 h-6 text-blue-600" />
+            Nhập số liệu nội trú
+          </h1>
         </div>
-        <div className="app-header__right" style={{ display: 'flex', gap: 'var(--space-4)', alignItems: 'center' }}>
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <select 
-              className="input" 
-              value={selectedDeptId} 
-              onChange={handleDeptSelect}
-              style={{ minWidth: '200px', backgroundColor: 'var(--bg-card)' }}
-              aria-label="Chọn Khoa/Phòng"
-            >
-              <optgroup label="Chọn Khoa/Phòng">
+        <div className="flex flex-wrap items-center gap-3">
+          <Select value={selectedDeptId} onValueChange={handleDeptSelect}>
+            <SelectTrigger className="w-full md:w-[240px] bg-white border-slate-200">
+              <SelectValue placeholder="Chọn Khoa/Phòng" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
                 {departments.map(d => (
-                  <option key={d.id} value={d.id}>{d.name}</option>
+                  <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
                 ))}
-              </optgroup>
-            </select>
-          </div>
-          <button 
-            className="btn btn-primary"
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <Button 
             onClick={handleSaveAll}
             disabled={Object.values(saving).some(s => s) || !daysInMonth.some(d => canEdit(monthReports[d]))}
+            className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
           >
+            <Save className="w-4 h-4 mr-2" />
             Lưu tất cả
-          </button>
-          <span className="badge badge-info" style={{ padding: '4px 12px', whiteSpace: 'nowrap' }}>
+          </Button>
+          <Badge variant="secondary" className="px-3 py-1.5 text-sm font-medium bg-blue-50 text-blue-700 border-blue-100">
             Tháng {reportDate.substring(5, 7)}/{reportDate.substring(0, 4)}
-          </span>
+          </Badge>
         </div>
-      </header>
+      </div>
 
-      <div className="app-content">
-        <div className="card">
+      <Card className="flex-1 overflow-hidden shadow-sm border-slate-200 flex flex-col bg-white">
+        <CardContent className="p-0 flex-1 overflow-hidden flex flex-col h-full relative">
           {dataLoading ? (
-            <div style={{ padding: 'var(--space-8)', textAlign: 'center' }}>Đang tải số liệu tháng...</div>
+            <div className="flex flex-col items-center justify-center p-12 text-slate-500 h-full">
+               <Loader2 className="h-8 w-8 animate-spin mb-4 text-blue-500" />
+               <p className="font-medium">Đang tải số liệu tháng...</p>
+            </div>
           ) : (
-            <div style={{ maxHeight: 'calc(100vh - 180px)', overflow: 'auto' }}>
-              <table className="data-table">
-                <thead>
+            <div className="flex-1 overflow-auto bg-white rounded-b-xl border-t border-slate-100">
+              <table className="w-full text-sm text-left border-collapse tabular-nums">
+                <thead className="text-xs text-slate-600 uppercase bg-slate-50/95 backdrop-blur sticky top-0 z-20 shadow-sm border-b border-slate-200 shadow-[0_1px_2px_-1px_rgba(0,0,0,0.1)]">
                   <tr>
-                    <th style={{ minWidth: '100px' }}>Ngày</th>
-                    <th style={{ minWidth: '60px' }}>Trạng thái</th>
+                    <th className="px-3 py-3 font-semibold border-r border-slate-200 sticky left-0 z-30 bg-slate-50 min-w-[100px] shadow-[1px_0_0_0_#e2e8f0]">Ngày</th>
+                    <th className="px-2 py-3 font-semibold border-r border-slate-200 min-w-[90px] text-center">Trạng thái</th>
                     {INPATIENT_FIELDS.map((f) => (
-                      <th key={f.key} className="col-number" style={{ minWidth: '80px' }}>
+                      <th key={f.key} className="px-2 py-3 font-semibold border-r border-slate-200 min-w-[70px] text-center">
                         {f.label}
                       </th>
                     ))}
-                    <th style={{ minWidth: '80px' }}>Thao tác</th>
+                    <th className="px-3 py-3 font-semibold border-slate-200 min-w-[80px] text-center">Thao tác</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-slate-100">
                   {daysInMonth.map((dateStr) => {
                     const report = monthReports[dateStr] || {};
                     const isLocked = report.status === REPORT_STATUS.LOCKED;
                     const editable = canEdit(report);
-                    // Highlight rows that are open for edit
-                    const rowClass = editable ? 'row-highlight-active' : '';
+                    const rowClass = editable ? 'bg-white hover:bg-blue-50/40 transition-colors group' : 'bg-slate-50 text-slate-500';
 
                     return (
                       <tr key={dateStr} className={rowClass}>
-                        <td style={{ fontWeight: 500 }}>{formatDisplayDate(dateStr)}</td>
-                        <td>
-                          <span className={`data-entry-status`}>
-                            <span className={`status-dot status-dot--${isLocked ? 'locked' : 'open'}`} />
-                            <span style={{ fontSize: '0.75rem' }}>
-                              {isLocked ? 'Đã khóa' : 'Đang mở'}
-                            </span>
-                          </span>
+                        <td className="px-3 py-2 font-medium border-r border-slate-200 sticky left-0 z-10 bg-inherit shadow-[1px_0_0_0_#e2e8f0] tabular-nums whitespace-nowrap text-slate-900 group-hover:bg-blue-50/40 transition-colors">
+                          {formatDisplayDate(dateStr)}
+                        </td>
+                        <td className="px-2 py-2 border-r border-slate-100 text-center">
+                          <div className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[10px] uppercase font-bold tracking-wide ${isLocked ? 'bg-slate-200 text-slate-600' : 'bg-emerald-100 text-emerald-700'}`}>
+                            {isLocked ? 'Đã khóa' : 'Đang mở'}
+                          </div>
                         </td>
                         {INPATIENT_FIELDS.map((field) => (
                           <td
                             key={field.key}
-                            className={field.computed ? 'col-computed' : 'col-number'}
+                            className={`px-1 py-1 border-r border-slate-100 text-center align-middle ${field.computed ? 'bg-slate-50/50 font-semibold text-slate-700' : ''}`}
                           >
                             {field.editable && editable ? (
-                              <input
-                                type="number"
-                                min="0"
-                                aria-label={`Nhập ${field.label} ngày ${formatDisplayDate(dateStr)}`}
-                                value={report[field.key] ?? 0}
-                                onChange={(e) =>
-                                  handleFieldChange(dateStr, field.key, e.target.value)
-                                }
-                                onBlur={() => handleAutoSaveRow(dateStr)}
-                              />
+                              <div className="relative group-focus-within:z-10 mx-auto w-16">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  aria-label={`Nhập ${field.label} ngày ${formatDisplayDate(dateStr)}`}
+                                  className="w-full h-8 px-1 text-center bg-transparent border-b-2 border-transparent hover:border-slate-300 rounded-none focus:outline-none focus:bg-blue-50 focus:border-blue-500 transition-all tabular-nums text-slate-900 font-medium"
+                                  value={report[field.key] ?? 0}
+                                  onChange={(e) =>
+                                    handleFieldChange(dateStr, field.key, e.target.value)
+                                  }
+                                  onBlur={() => handleAutoSaveRow(dateStr)}
+                                />
+                              </div>
                             ) : (
-                              <span>{report[field.key] ?? 0}</span>
+                              <span className="block mx-auto min-w-[2rem]">{report[field.key] ?? 0}</span>
                             )}
                           </td>
                         ))}
-                        <td>
+                        <td className="px-2 py-2 text-center align-middle">
                           {editable ? (
-                            <button
-                              className="btn btn-primary btn-sm"
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                               onClick={() => handleSaveRow(dateStr)}
                               disabled={saving[dateStr]}
                             >
-                              {saving[dateStr] ? '...' : 'Lưu'}
-                            </button>
+                              {saving[dateStr] ? <Loader2 className="h-3 w-3 animate-spin"/> : 'Lưu'}
+                            </Button>
                           ) : (
-                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                            <span className="text-xs text-slate-400">
                               {isLocked ? '🔒' : '—'}
                             </span>
                           )}
@@ -457,37 +472,42 @@ export default function DataEntryPage() {
                     );
                   })}
                 </tbody>
-                <tfoot>
-                  <tr style={{ backgroundColor: 'var(--bg-body)', fontWeight: 600 }}>
-                    <td colSpan="2" style={{ textAlign: 'right', paddingRight: 'var(--space-4)' }}>Tổng cộng (Tháng):</td>
+                <tfoot className="sticky bottom-0 z-20 bg-slate-50 shadow-[0_-1px_2px_-1px_rgba(0,0,0,0.1)] border-t border-slate-200">
+                  <tr className="font-semibold text-slate-800">
+                    <td colSpan="2" className="px-3 py-3 text-right uppercase text-xs border-r border-slate-200 sticky left-0 z-10 bg-slate-50 shadow-[1px_0_0_0_#e2e8f0]">
+                      Tổng cộng (Tháng):
+                    </td>
                     {INPATIENT_FIELDS.map((field) => (
-                      <td key={'total_' + field.key} className="col-number" style={{ color: 'var(--primary)' }}>
+                      <td key={'total_' + field.key} className="px-2 py-3 text-center border-r border-slate-200 text-blue-700">
                         {totals[field.key]}
                       </td>
                     ))}
-                    <td></td>
+                    <td className="px-3 py-3"></td>
                   </tr>
                 </tfoot>
               </table>
             </div>
           )}
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
+      {/* Tailwind Toast implementation (Basic) */}
       {toast && (
-        <div className="toast-container">
-          <div className={`toast toast-${toast.type}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-4)' }}>
-            <span>{toast.msg}</span>
-            <button 
+        <div className="fixed bottom-6 right-6 z-50 animate-in slide-in-from-bottom-5 fade-in duration-300">
+          <div className={`flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg border ${toast.type === 'error' ? 'bg-red-50 border-red-200 text-red-800' : toast.type === 'warning' ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
+            {toast.type === 'error' ? <AlertCircle className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
+            <span className="font-medium text-sm">{toast.msg}</span>
+            <Button 
+              variant="ghost"
+              size="sm"
               onClick={() => setToast(null)}
-              className="btn btn-sm"
-              style={{ background: 'rgba(255, 255, 255, 0.25)', color: 'inherit', border: 'none' }}
+              className={`h-6 w-6 p-0 rounded-full hover:bg-black/5 ml-2`}
             >
-              OK
-            </button>
+              ×
+            </Button>
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }

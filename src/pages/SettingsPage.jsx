@@ -1,9 +1,20 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { getSettings, updateSettings } from '../services/settingsService';
 import { getFacilities, getDepartments, saveFacility, deleteFacility, saveDepartment, deleteDepartment } from '../services/departmentService';
 import { getAllUsers, updateUser, deleteUser as deleteUserService, resetUserPassword } from '../services/authService';
 import { ROLE_LABELS, ROLES, POSITIONS, TITLES } from '../utils/constants';
+
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+
+import { Settings, Building2, Layers, Users, Plus, Trash2, Edit2, ShieldAlert, KeyRound, Loader2, Save, X, ShieldCheck } from 'lucide-react';
 
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -145,367 +156,529 @@ export default function SettingsPage() {
   }
 
   const tabs = [
-    { key: 'general', label: '⚙️ Cấu hình chung' },
-    { key: 'facilities', label: '🏢 Cơ sở' },
-    { key: 'departments', label: '🏥 Khoa' },
-    { key: 'users', label: '👥 Người dùng' },
+    { key: 'general', label: 'Cấu hình chung', icon: <Settings className="w-4 h-4 mr-2" /> },
+    { key: 'facilities', label: 'Cơ sở', icon: <Building2 className="w-4 h-4 mr-2" /> },
+    { key: 'departments', label: 'Khoa', icon: <Layers className="w-4 h-4 mr-2" /> },
+    { key: 'users', label: 'Người dùng', icon: <Users className="w-4 h-4 mr-2" /> },
   ];
 
   return (
-    <>
-      <header className="app-header">
-        <div className="app-header__left">
-          <h1 className="app-header__title">⚙️ Cài đặt</h1>
-        </div>
-      </header>
-
-      <div className="app-content">
-        <div className="settings-grid">
-          {/* Nav */}
-          <nav className="settings-nav">
-            {tabs.map((t) => (
-              <button
-                key={t.key}
-                className={`settings-nav__item ${tab === t.key ? 'settings-nav__item--active' : ''}`}
-                onClick={() => setTab(t.key)}
-              >
-                {t.label}
-              </button>
-            ))}
-          </nav>
-
-          {/* Content */}
-          <div>
-            {tab === 'general' && (
-              <div className="card">
-                <div className="card-header">
-                  <h2 className="card-title">Cấu hình chung</h2>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
-                  <div className="form-group">
-                    <label className="form-label">Tên bệnh viện</label>
-                    <input
-                      className="form-input"
-                      value={settings.hospitalName || ''}
-                      onChange={(e) => setSettingsData((p) => ({ ...p, hospitalName: e.target.value }))}
-                      onBlur={(e) => handleSettingsChange('hospitalName', e.target.value)}
-                      placeholder="Nhập tên bệnh viện"
-                    />
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', cursor: 'pointer' }}>
-                      <input
-                        type="checkbox"
-                        checked={settings.requireApproval || false}
-                        onChange={(e) => handleSettingsChange('requireApproval', e.target.checked)}
-                        style={{ width: '18px', height: '18px', accentColor: 'var(--color-primary-500)' }}
-                      />
-                      <span style={{ fontWeight: 500 }}>Yêu cầu phê duyệt thành viên mới</span>
-                    </label>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {tab === 'facilities' && (
-              <div className="card">
-                <div className="card-header">
-                  <h2 className="card-title">Quản lý cơ sở</h2>
-                </div>
-
-                <table className="data-table" style={{ marginBottom: 'var(--space-4)' }}>
-                  <thead>
-                    <tr>
-                      <th>Tên cơ sở</th>
-                      <th>Số khoa</th>
-                      <th>Thao tác</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {facilities.map((f) => (
-                      <tr key={f.id}>
-                        <td style={{ fontWeight: 500 }}>{f.name}</td>
-                        <td>{departments.filter((d) => d.facilityId === f.id).length}</td>
-                        <td>
-                          <button className="btn btn-danger btn-sm" onClick={() => handleDeleteFacility(f.id)}>
-                            Xóa
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-
-                <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-                  <input
-                    className="form-input"
-                    placeholder="Tên cơ sở mới"
-                    value={newFacName}
-                    onChange={(e) => setNewFacName(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleAddFacility()}
-                  />
-                  <button className="btn btn-primary" onClick={handleAddFacility}>Thêm</button>
-                </div>
-              </div>
-            )}
-
-            {tab === 'departments' && (
-              <div className="card">
-                <div className="card-header">
-                  <h2 className="card-title">Quản lý khoa</h2>
-                </div>
-
-                {facilities.map((fac) => (
-                  <div key={fac.id} style={{ marginBottom: 'var(--space-5)' }}>
-                    <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 600, marginBottom: 'var(--space-2)', color: 'var(--color-primary-600)' }}>
-                      {fac.name}
-                    </h3>
-                    <table className="data-table">
-                      <thead>
-                        <tr>
-                          <th>Tên khoa</th>
-                          <th>Thao tác</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {departments
-                          .filter((d) => d.facilityId === fac.id)
-                          .map((d) => (
-                            <tr key={d.id}>
-                              <td style={{ fontWeight: 500 }}>{d.name}</td>
-                              <td>
-                                <button className="btn btn-danger btn-sm" onClick={() => handleDeleteDepartment(d.id)}>
-                                  Xóa
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ))}
-
-                <div style={{ display: 'flex', gap: 'var(--space-2)', marginTop: 'var(--space-4)' }}>
-                  <select
-                    className="form-input"
-                    value={newDeptFac}
-                    onChange={(e) => setNewDeptFac(e.target.value)}
-                    style={{ width: '140px' }}
-                  >
-                    <option value="">Chọn cơ sở</option>
-                    {facilities.map((f) => (
-                      <option key={f.id} value={f.id}>{f.name}</option>
-                    ))}
-                  </select>
-                  <input
-                    className="form-input"
-                    placeholder="Tên khoa mới"
-                    value={newDeptName}
-                    onChange={(e) => setNewDeptName(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleAddDepartment()}
-                  />
-                  <button className="btn btn-primary" onClick={handleAddDepartment}>Thêm</button>
-                </div>
-              </div>
-            )}
-
-            {tab === 'users' && (
-              <div className="card">
-                <div className="card-header">
-                  <h2 className="card-title">Quản lý người dùng</h2>
-                </div>
-
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Người dùng</th>
-                      <th>Vai trò</th>
-                      <th>Khoa</th>
-                      <th>Trạng thái</th>
-                      <th>Thao tác</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {users.map((u) => (
-                      <tr key={u.uid}>
-                        <td>
-                          <div style={{ fontWeight: 500 }}>{u.displayName}</div>
-                          <div style={{ fontSize: '0.8125rem', color: 'var(--color-neutral-500)' }}>@{u.nickname}</div>
-                        </td>
-                        <td>
-                          <select
-                            className="form-input"
-                            value={u.role}
-                            onChange={(e) => handleChangeRole(u.uid, e.target.value)}
-                            style={{ width: '160px', height: '28px', fontSize: '0.8125rem' }}
-                            disabled={u.uid === user.uid}
-                          >
-                            {Object.entries(ROLE_LABELS).map(([k, v]) => (
-                              <option key={k} value={k}>{v}</option>
-                            ))}
-                          </select>
-                        </td>
-                        <td>
-                          {u.primaryDepartmentId && (
-                            <div style={{ fontWeight: 500 }}>
-                              {departments.find((d) => d.id === u.primaryDepartmentId)?.name || '—'}
-                            </div>
-                          )}
-                          {u.additionalDepartments && u.additionalDepartments.length > 0 && (
-                            <div style={{ fontSize: '0.8125rem', color: 'var(--color-neutral-500)', marginTop: '2px' }}>
-                              + {u.additionalDepartments.map(depId => departments.find(d => d.id === depId)?.name).filter(Boolean).join(', ')}
-                            </div>
-                          )}
-                          {!u.primaryDepartmentId && (!u.additionalDepartments || u.additionalDepartments.length === 0) && '—'}
-                        </td>
-                        <td>
-                          <span className={`badge ${u.approved ? 'badge-success' : 'badge-warning'}`}>
-                            {u.approved ? 'Hoạt động' : 'Chờ duyệt'}
-                          </span>
-                        </td>
-                        <td>
-                          <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
-                            <button
-                              className="btn btn-sm btn-secondary"
-                              onClick={() => setEditingUser({ ...u, additionalDepartments: u.additionalDepartments || [] })}
-                            >
-                              Sửa
-                            </button>
-                            <button
-                              className={`btn btn-sm ${u.approved ? 'btn-secondary' : 'btn-primary'}`}
-                              onClick={() => handleToggleApproval(u.uid, u.approved)}
-                              disabled={u.uid === user.uid}
-                            >
-                              {u.approved ? 'Khóa' : 'Duyệt'}
-                            </button>
-                            {u.uid !== user.uid && (
-                              <>
-                                <button
-                                  className="btn btn-sm" style={{ background: 'var(--color-warning)', color: '#fff' }}
-                                  onClick={() => handleResetPassword(u.uid)}
-                                  title="Reset mật khẩu về 123456"
-                                >
-                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><polyline points="3 3 3 8 8 8"></polyline></svg>
-                                </button>
-                                <button
-                                  className="btn btn-danger btn-sm"
-                                  onClick={() => handleDeleteUser(u.uid)}
-                                >
-                                  Xóa
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+    <div className="flex flex-col h-full bg-slate-50/50 p-4 md:p-6 pb-24 overflow-x-hidden">
+      <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4 shrink-0">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
+            <Settings className="w-6 h-6 text-blue-600" />
+            Cài đặt hệ thống
+          </h1>
         </div>
       </div>
 
-      {editingUser && (
-        <div className="modal-overlay" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
-          <div className="modal-content" style={{ background: '#fff', padding: 'var(--space-5)', borderRadius: '12px', width: '100%', maxWidth: '500px', maxHeight: '90vh', overflowY: 'auto' }}>
-            <h2 style={{ marginBottom: 'var(--space-4)', fontSize: '1.25rem', fontWeight: 600 }}>Chỉnh sửa người dùng</h2>
-            
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-              <div className="form-group">
-                <label className="form-label">Họ và tên</label>
-                <input className="form-input" value={editingUser.displayName} onChange={e => setEditingUser(prev => ({ ...prev, displayName: e.target.value }))} />
-              </div>
+      <div className="flex-1 overflow-auto flex flex-col gap-6 max-w-6xl w-full mx-auto">
+        <Tabs value={tab} onValueChange={setTab} className="w-full flex-col flex h-full">
+          <TabsList className="grid w-full lg:w-max grid-cols-2 lg:grid-cols-4 bg-slate-100 p-1 rounded-lg shrink-0 mb-6">
+            {tabs.map((t) => (
+              <TabsTrigger 
+                key={t.key} 
+                value={t.key} 
+                className="data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow-sm rounded-md py-2 transition-all font-medium text-slate-600"
+              >
+                {t.icon}
+                {t.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+
+          <TabsContent value="general" className="mt-0 focus-visible:outline-none flex-1">
+            <Card className="shadow-sm border-slate-200">
+              <CardHeader className="border-b border-slate-100 bg-slate-50/50">
+                <CardTitle className="text-lg font-semibold text-slate-800">Cấu hình chung</CardTitle>
+                <CardDescription>Cài đặt cơ bản cho toàn hệ thống</CardDescription>
+              </CardHeader>
+              <CardContent className="p-6 space-y-8">
+                <div className="space-y-3 max-w-md">
+                  <Label htmlFor="hospital-name" className="text-sm font-medium text-slate-700">Tên bệnh viện</Label>
+                  <Input
+                    id="hospital-name"
+                    value={settings.hospitalName || ''}
+                    onChange={(e) => setSettingsData((p) => ({ ...p, hospitalName: e.target.value }))}
+                    onBlur={(e) => handleSettingsChange('hospitalName', e.target.value)}
+                    placeholder="Nhập tên bệnh viện"
+                    className="focus-visible:ring-blue-500"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Tên này sẽ hiển thị trên tiêu đề và báo cáo in ra.</p>
+                </div>
+
+                <div className="h-px w-full bg-slate-100 my-6"></div>
+
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="require-approval" className="text-base font-semibold text-slate-800 cursor-pointer">Yêu cầu phê duyệt tài khoản mới</Label>
+                    <p className="text-sm text-slate-500">Tài khoản mới đăng ký phải được Admin duyệt mới có thể đăng nhập.</p>
+                  </div>
+                  <Switch
+                    id="require-approval"
+                    checked={settings.requireApproval || false}
+                    onCheckedChange={(checked) => handleSettingsChange('requireApproval', checked)}
+                    className="data-[state=checked]:bg-blue-600"
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="facilities" className="mt-0 focus-visible:outline-none flex-1">
+            <Card className="shadow-sm border-slate-200">
+              <CardHeader className="flex flex-row items-center justify-between border-b border-slate-100 bg-slate-50/50 py-4">
+                <div>
+                  <CardTitle className="text-lg font-semibold text-slate-800">Quản lý cơ sở</CardTitle>
+                  <CardDescription>Tạo và quản lý các cơ sở, chi nhánh</CardDescription>
+                </div>
+              </CardHeader>
               
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
-                <div className="form-group">
-                  <label className="form-label">Chức vụ</label>
-                  <select className="form-input" value={editingUser.position || ''} onChange={e => setEditingUser(prev => ({ ...prev, position: e.target.value }))}>
-                    <option value="">-- Thuộc --</option>
-                    {POSITIONS.map(p => <option key={p} value={p}>{p}</option>)}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Chức danh</label>
-                  <select className="form-input" value={editingUser.title || ''} onChange={e => setEditingUser(prev => ({ ...prev, title: e.target.value }))}>
-                    <option value="">-- Thuộc --</option>
-                    {TITLES.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
+              <div className="p-4 bg-slate-50 border-b border-slate-100">
+                <div className="flex gap-3 max-w-md">
+                  <Input
+                    placeholder="Tên cơ sở mới..."
+                    value={newFacName}
+                    onChange={(e) => setNewFacName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddFacility()}
+                    className="focus-visible:ring-blue-500"
+                  />
+                  <Button onClick={handleAddFacility} className="bg-blue-600 hover:bg-blue-700 text-white shrink-0">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Thêm cơ sở
+                  </Button>
                 </div>
               </div>
 
-              <div className="form-group">
-                <label className="form-label">Vai trò</label>
-                <select className="form-input" value={editingUser.role} onChange={e => setEditingUser(prev => ({ ...prev, role: e.target.value }))}>
-                  {Object.entries(ROLE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Khoa chính</label>
-                <select className="form-input" value={editingUser.primaryDepartmentId || ''} onChange={e => setEditingUser(prev => ({ ...prev, primaryDepartmentId: e.target.value }))}>
-                  <option value="">-- Không chọn --</option>
-                  {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </select>
-              </div>
-
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Khoa bổ sung (kiêm nhiệm)</label>
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                  <select id="add-dept-select" className="form-input" style={{ flex: 1 }}>
-                    <option value="">-- Chọn khoa để thêm --</option>
-                    {departments.filter(d => d.id !== editingUser.primaryDepartmentId && !editingUser.additionalDepartments?.includes(d.id)).map(d => (
-                      <option key={d.id} value={d.id}>{d.name}</option>
-                    ))}
-                  </select>
-                  <button className="btn btn-secondary" onClick={() => {
-                    const sel = document.getElementById('add-dept-select');
-                    handleAddAdditionalDept(sel.value);
-                    sel.value = '';
-                  }}>Thêm</button>
+              <CardContent className="p-0 bg-white">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left border-collapse">
+                    <thead className="text-xs text-slate-600 uppercase bg-slate-50 border-b border-slate-200">
+                      <tr>
+                        <th className="px-6 py-4 font-semibold">Tên cơ sở</th>
+                        <th className="px-6 py-4 font-semibold text-center w-32">Số Khoa</th>
+                        <th className="px-6 py-4 font-semibold text-right w-32">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {facilities.length === 0 ? (
+                        <tr>
+                          <td colSpan={3} className="text-center py-8 text-slate-500 bg-slate-50/50">Chưa có cơ sở nào</td>
+                        </tr>
+                      ) : (
+                        facilities.map((f) => (
+                          <tr key={f.id} className="hover:bg-slate-50 transition-colors group">
+                            <td className="px-6 py-4 font-medium text-slate-900">{f.name}</td>
+                            <td className="px-6 py-4 text-center text-slate-600">
+                              <Badge variant="secondary" className="bg-slate-100 text-slate-700">{departments.filter((d) => d.facilityId === f.id).length} khoa</Badge>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <Button variant="ghost" size="sm" onClick={() => handleDeleteFacility(f.id)} className="text-red-600 hover:text-red-700 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Trash2 className="w-4 h-4 mr-2" /> Xóa
+                              </Button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '4px' }}>
-                  {editingUser.additionalDepartments?.map(deptId => {
-                    const dName = departments.find(d => d.id === deptId)?.name || deptId;
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="departments" className="mt-0 focus-visible:outline-none flex-1">
+            <Card className="shadow-sm border-slate-200">
+              <CardHeader className="border-b border-slate-100 bg-slate-50/50 py-4">
+                <CardTitle className="text-lg font-semibold text-slate-800">Quản lý khoa</CardTitle>
+                <CardDescription>Tạo và phân bổ các khoa vào từng cơ sở</CardDescription>
+              </CardHeader>
+              
+              <div className="p-4 bg-slate-50 border-b border-slate-100">
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <Select value={newDeptFac} onValueChange={setNewDeptFac}>
+                    <SelectTrigger className="w-full sm:w-[220px] bg-white">
+                      <SelectValue placeholder="Chọn cơ sở trực thuộc..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {facilities.map((f) => (
+                        <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  
+                  <Input
+                    placeholder="Tên khoa mới..."
+                    value={newDeptName}
+                    onChange={(e) => setNewDeptName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddDepartment()}
+                    className="flex-1 focus-visible:ring-blue-500 bg-white"
+                  />
+                  
+                  <Button onClick={handleAddDepartment} className="bg-blue-600 hover:bg-blue-700 text-white shrink-0 w-full sm:w-auto">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Thêm khoa
+                  </Button>
+                </div>
+              </div>
+
+              <CardContent className="p-0 bg-slate-50 border-t border-slate-100">
+                <div className="divide-y divide-slate-200/60 p-4 space-y-6">
+                  {facilities.map((fac) => {
+                    const facDepts = departments.filter((d) => d.facilityId === fac.id);
                     return (
-                      <span key={deptId} className="badge badge-info" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'var(--color-primary-100)', color: 'var(--color-primary-800)', padding: '4px 8px', borderRadius: '4px' }}>
-                        {dName}
-                        <button type="button" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', color: 'inherit', fontWeight: 'bold' }} onClick={() => handleRemoveAdditionalDept(deptId)}>×</button>
-                      </span>
-                    )
+                      <div key={fac.id} className="pt-2 first:pt-0">
+                        <div className="flex items-center gap-2 mb-3 px-2">
+                          <Building2 className="w-4 h-4 text-blue-600" />
+                          <h3 className="text-base font-bold text-slate-800">{fac.name}</h3>
+                          <Badge variant="outline" className="ml-2 font-normal text-slate-500 bg-white">
+                            {facDepts.length} khoa
+                          </Badge>
+                        </div>
+                        
+                        <div className="bg-white border text-sm border-slate-200 rounded-lg overflow-hidden shadow-sm">
+                          {facDepts.length === 0 ? (
+                            <div className="p-6 text-center text-slate-500 bg-slate-50/50">Chưa có khoa nào trong cơ sở này</div>
+                          ) : (
+                            <ul className="divide-y divide-slate-100">
+                              {facDepts.map(d => (
+                                <li key={d.id} className="flex items-center justify-between p-3 px-4 hover:bg-slate-50/80 transition-colors group">
+                                  <span className="font-medium text-slate-700">{d.name}</span>
+                                  <Button variant="ghost" size="sm" onClick={() => handleDeleteDepartment(d.id)} className="text-red-500 hover:text-red-700 hover:bg-red-50 h-8 px-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      </div>
+                    );
                   })}
-                  {(!editingUser.additionalDepartments || editingUser.additionalDepartments.length === 0) && (
-                    <span style={{ fontSize: '0.8125rem', color: 'var(--color-neutral-500)' }}>Chưa có khoa bổ sung</span>
+                  {facilities.length === 0 && (
+                    <div className="text-center p-8 text-slate-500">
+                      Bạn cần thêm cơ sở trước khi tạo khoa.
+                    </div>
                   )}
                 </div>
-              </div>
-            </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-3)', marginTop: 'var(--space-6)' }}>
-              <button className="btn btn-secondary" onClick={() => setEditingUser(null)}>Hủy</button>
-              <button className="btn btn-primary" onClick={handleSaveUser}>Lưu thay đổi</button>
+          <TabsContent value="users" className="mt-0 focus-visible:outline-none flex-1">
+            <Card className="shadow-sm border-slate-200">
+              <CardHeader className="border-b border-slate-100 bg-slate-50/50 py-4">
+                <CardTitle className="text-lg font-semibold text-slate-800">Quản lý người dùng</CardTitle>
+                <CardDescription>Phân quyền, duyệt tài khoản và gán khoa cho nhân viên</CardDescription>
+              </CardHeader>
+              
+              <CardContent className="p-0 bg-white overflow-hidden rounded-b-xl">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left border-collapse">
+                    <thead className="text-xs text-slate-600 uppercase bg-slate-50 border-b border-slate-200">
+                      <tr>
+                        <th className="px-5 py-3 font-semibold min-w-[200px]">Tài khoản</th>
+                        <th className="px-5 py-3 font-semibold w-40">Vai trò</th>
+                        <th className="px-5 py-3 font-semibold min-w-[200px]">Trực thuộc Khoa</th>
+                        <th className="px-5 py-3 font-semibold text-center w-32">Trạng thái</th>
+                        <th className="px-5 py-3 font-semibold text-right min-w-[150px]">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {users.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="text-center py-10 text-slate-500 bg-slate-50/50">
+                            Không có dữ liệu người dùng
+                          </td>
+                        </tr>
+                      ) : (
+                        users.map((u) => (
+                          <tr key={u.uid} className="hover:bg-slate-50/80 transition-colors align-top">
+                            <td className="px-5 py-4">
+                              <div className="flex flex-col">
+                                <span className="font-semibold text-slate-900">{u.displayName}</span>
+                                <span className="text-xs text-slate-500 mt-0.5">@{u.nickname}</span>
+                                {u.email && <span className="text-xs text-slate-400">{u.email}</span>}
+                              </div>
+                            </td>
+                            <td className="px-5 py-3">
+                              <Select
+                                value={u.role}
+                                onValueChange={(val) => handleChangeRole(u.uid, val)}
+                                disabled={u.uid === user.uid}
+                              >
+                                <SelectTrigger className="h-8 text-xs font-semibold focus:ring-1">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {Object.entries(ROLE_LABELS).map(([k, v]) => (
+                                    <SelectItem key={k} value={k} className="text-xs">{v}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </td>
+                            <td className="px-5 py-3">
+                              <div className="space-y-1.5">
+                                {u.primaryDepartmentId ? (
+                                  <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 font-medium whitespace-normal text-left h-auto py-1">
+                                    Mặc định: {departments.find((d) => d.id === u.primaryDepartmentId)?.name || 'Khoa bị xóa'}
+                                  </Badge>
+                                ) : (
+                                  <span className="text-slate-400 text-xs italic">Chưa gán khoa</span>
+                                )}
+                                
+                                {u.additionalDepartments && u.additionalDepartments.length > 0 && (
+                                  <div className="flex flex-col gap-1 mt-1">
+                                    {u.additionalDepartments.map(depId => {
+                                      const dName = departments.find(d => d.id === depId)?.name;
+                                      return dName ? (
+                                        <Badge key={depId} variant="secondary" className="bg-slate-100 text-slate-600 font-normal text-[11px] whitespace-normal text-left max-w-full">
+                                          + {dName}
+                                        </Badge>
+                                      ) : null;
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-5 py-4 text-center">
+                              {u.approved ? (
+                                <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 shadow-none font-medium">Hoạt động</Badge>
+                              ) : (
+                                <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 shadow-none font-medium">Chờ duyệt</Badge>
+                              )}
+                            </td>
+                            <td className="px-5 py-3 text-right">
+                              <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-8 w-8 text-slate-600 hover:text-blue-600 hover:bg-blue-50"
+                                  onClick={() => setEditingUser({ ...u, additionalDepartments: u.additionalDepartments || [] })}
+                                  title="Sửa thông tin"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </Button>
+                                
+                                <Button
+                                  variant={u.approved ? "outline" : "default"}
+                                  size="icon"
+                                  className={`h-8 w-8 ${u.approved ? 'text-slate-600 hover:text-amber-600 hover:bg-amber-50' : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm'}`}
+                                  onClick={() => handleToggleApproval(u.uid, u.approved)}
+                                  disabled={u.uid === user.uid}
+                                  title={u.approved ? "Tạm khóa tài khoản" : "Phê duyệt tài khoản"}
+                                >
+                                  {u.approved ? <ShieldAlert className="w-3.5 h-3.5" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+                                </Button>
+
+                                {u.uid !== user.uid && (
+                                  <>
+                                    <Button
+                                      variant="outline"
+                                      size="icon"
+                                      className="h-8 w-8 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 border-slate-200"
+                                      onClick={() => handleResetPassword(u.uid)}
+                                      title="Reset mật khẩu (123456)"
+                                    >
+                                      <KeyRound className="w-3.5 h-3.5" />
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="icon"
+                                      className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                      onClick={() => handleDeleteUser(u.uid)}
+                                      title="Xóa người dùng"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </Button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </div>
+
+      {editingUser && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <Card className="w-full max-w-2xl bg-white shadow-xl animate-in zoom-in-95 duration-200 overflow-hidden flex flex-col max-h-[90vh]">
+            <CardHeader className="border-b border-slate-100 bg-slate-50/50 py-4 shrink-0 flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-xl">Sửa thông tin người dùng</CardTitle>
+                <CardDescription className="mt-1">Cập nhật tài khoản <span className="font-semibold text-slate-700">@{editingUser.nickname}</span></CardDescription>
+              </div>
+              <Button variant="ghost" size="icon" onClick={() => setEditingUser(null)} className="h-8 w-8 rounded-full text-slate-500">
+                <X className="h-4 w-4" />
+              </Button>
+            </CardHeader>
+            
+            <CardContent className="p-6 overflow-y-auto" style={{ flex: '1 1 auto' }}>
+              <div className="space-y-6">
+                <div>
+                  <Label className="text-sm font-medium text-slate-700 mb-1.5 block">Họ và tên</Label>
+                  <Input 
+                    value={editingUser.displayName} 
+                    onChange={e => setEditingUser(prev => ({ ...prev, displayName: e.target.value }))} 
+                    className="focus-visible:ring-blue-500"
+                  />
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div>
+                    <Label className="text-sm font-medium text-slate-700 mb-1.5 block">Chức vụ (Hành chính)</Label>
+                    <Select 
+                      value={editingUser.position || "none"} 
+                      onValueChange={val => setEditingUser(prev => ({ ...prev, position: val === "none" ? "" : val }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Chọn chức vụ" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none" className="italic text-slate-500">-- Không --</SelectItem>
+                        {POSITIONS.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-medium text-slate-700 mb-1.5 block">Chức danh (Chuyên môn)</Label>
+                    <Select 
+                      value={editingUser.title || "none"} 
+                      onValueChange={val => setEditingUser(prev => ({ ...prev, title: val === "none" ? "" : val }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Chọn chức danh" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none" className="italic text-slate-500">-- Không --</SelectItem>
+                        {TITLES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="h-px bg-slate-100 my-2"></div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div>
+                    <Label className="text-sm font-medium text-slate-700 mb-1.5 block">Phân quyền Hệ thống</Label>
+                    <Select 
+                      value={editingUser.role} 
+                      onValueChange={val => setEditingUser(prev => ({ ...prev, role: val }))}
+                    >
+                      <SelectTrigger className="border-blue-200 bg-blue-50 text-blue-900 font-medium">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(ROLE_LABELS).map(([k, v]) => <SelectItem key={k} value={k} className="font-medium">{v}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <Label className="text-sm font-medium text-slate-700 mb-1.5 block">Khoa mặc định</Label>
+                    <Select 
+                      value={editingUser.primaryDepartmentId || "none"} 
+                      onValueChange={val => setEditingUser(prev => ({ ...prev, primaryDepartmentId: val === "none" ? "" : val }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Chọn khoa chính" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none" className="italic text-slate-500">-- Không có khoa mặc định --</SelectItem>
+                        {departments.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="bg-slate-50/80 p-4 rounded-lg border border-slate-200">
+                  <Label className="text-sm font-medium text-slate-700 mb-2.5 block">Khoa kiêm nhiệm (Nhập & Xem dữ liệu)</Label>
+                  <div className="flex gap-2 mb-3">
+                    <div className="flex-1">
+                      <select 
+                        id="add-dept-select" 
+                        className="flex h-10 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                        defaultValue=""
+                      >
+                        <option value="" disabled>-- Chọn khoa kiêm nhiệm --</option>
+                        {departments.filter(d => d.id !== editingUser.primaryDepartmentId && !editingUser.additionalDepartments?.includes(d.id)).map(d => (
+                          <option key={d.id} value={d.id}>{d.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <Button 
+                      variant="secondary"
+                      onClick={() => {
+                        const sel = document.getElementById('add-dept-select');
+                        if (sel.value) {
+                          handleAddAdditionalDept(sel.value);
+                          sel.value = "";
+                        }
+                      }}
+                    >
+                      <Plus className="w-4 h-4 mr-1" />
+                      Thêm
+                    </Button>
+                  </div>
+                  
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {editingUser.additionalDepartments?.map(deptId => {
+                      const dName = departments.find(d => d.id === deptId)?.name || deptId;
+                      return (
+                        <Badge key={deptId} variant="secondary" className="bg-white border-slate-200 text-slate-700 hover:bg-slate-100 pr-1 pl-3 py-1 text-sm font-normal">
+                          {dName}
+                          <button 
+                            type="button" 
+                            className="ml-1.5 p-0.5 rounded-full hover:bg-slate-200 text-slate-500 hover:text-red-500 transition-colors"
+                            onClick={() => handleRemoveAdditionalDept(deptId)}
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </Badge>
+                      )
+                    })}
+                    {(!editingUser.additionalDepartments || editingUser.additionalDepartments.length === 0) && (
+                      <span className="text-sm text-slate-500 italic mt-1">Chưa gán khoa kiêm nhiệm nào</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+            
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 shrink-0 rounded-b-xl">
+              <Button variant="outline" onClick={() => setEditingUser(null)}>Hủy bỏ</Button>
+              <Button onClick={handleSaveUser} className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
+                <Save className="w-4 h-4 mr-2" />
+                Lưu lại
+              </Button>
             </div>
-          </div>
+          </Card>
         </div>
       )}
 
       {toast && (
-        <div className="toast-container">
-          <div className={`toast toast-${toast.type}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-4)' }}>
+        <div className="fixed bottom-4 right-4 z-50 flex items-center justify-between gap-4 px-4 py-3 rounded-lg shadow-lg bg-slate-800 text-white animate-in slide-in-from-bottom-5">
+          <div className="flex items-center gap-2 font-medium">
+            <Settings className={`w-5 h-5 ${toast.type === 'error' ? 'text-red-400' : 'text-emerald-400'}`} />
             <span>{toast.msg}</span>
-            <button 
-              onClick={() => setToast(null)}
-              className="btn btn-sm"
-              style={{ background: 'rgba(255, 255, 255, 0.25)', color: 'inherit', border: 'none' }}
-            >
-              OK
-            </button>
           </div>
+          <button 
+            onClick={() => setToast(null)}
+            className="text-slate-300 hover:text-white transition-colors p-1"
+          >
+            Đóng
+          </button>
         </div>
       )}
-    </>
+    </div>
   );
 }

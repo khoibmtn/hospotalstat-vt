@@ -1,9 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { registerUser, sanitizeNickname } from '../services/authService';
+import { registerUser } from '../services/authService';
 import { getDepartments, getFacilities } from '../services/departmentService';
 import { useAuth } from '../contexts/AuthContext';
-import { ROLES, ROLE_LABELS, POSITIONS, TITLES } from '../utils/constants';
+import { ROLES, POSITIONS, TITLES } from '../utils/constants';
+
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { UserPlus } from 'lucide-react';
 
 export default function RegisterPage() {
   const [departmentId, setDepartmentId] = useState('');
@@ -37,7 +44,6 @@ export default function RegisterPage() {
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
-
 
     if (!fullName.trim()) {
       setError('Vui lòng nhập họ tên.');
@@ -83,136 +89,160 @@ export default function RegisterPage() {
   }));
 
   return (
-    <div className="auth-page">
-      <div className="auth-card" style={{ maxWidth: '480px' }}>
-        <div className="auth-card__title">🏥 Đăng ký</div>
-        <div className="auth-card__subtitle">
-          Tạo tài khoản mới để nhập liệu
-        </div>
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 py-12">
+      <Card className="w-full max-w-lg shadow-lg border-slate-200">
+        <CardHeader className="space-y-1 text-center bg-slate-50/50 border-b border-slate-100 rounded-t-xl mb-4">
+          <CardTitle className="text-2xl font-bold tracking-tight text-slate-900 flex items-center justify-center gap-2">
+            <span className="text-2xl">🏥</span> Đăng ký tài khoản
+          </CardTitle>
+          <CardDescription className="text-slate-500">
+            Tạo tài khoản mới để tham gia hệ thống HospitalStat
+          </CardDescription>
+        </CardHeader>
 
-        <form className="auth-card__form" onSubmit={handleSubmit}>
-          {error && (
-            <div className="badge badge-error" style={{ padding: '8px 12px', fontSize: '0.8125rem', borderRadius: '8px', width: '100%', justifyContent: 'center' }}>
-              {error}
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-5">
+            {error && (
+              <div className="bg-red-50 text-red-600 border border-red-200 p-3 rounded-lg text-sm text-center font-medium animate-in fade-in zoom-in duration-200">
+                {error}
+              </div>
+            )}
+
+            {/* 1. Khoa */}
+            <div className="space-y-2">
+              <Label htmlFor="reg-dept" className="text-slate-700 font-medium">Khoa trực thuộc</Label>
+              <select
+                id="reg-dept"
+                className="flex h-11 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-base ring-offset-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 shadow-sm"
+                value={departmentId}
+                onChange={(e) => setDepartmentId(e.target.value)}
+                autoFocus
+              >
+                <option value="" disabled>-- Chọn khoa của bạn --</option>
+                {groupedDepts.map((facility) => (
+                  <optgroup key={facility.id} label={facility.name} className="font-semibold text-slate-900">
+                    {facility.depts.map((dept) => (
+                      <option key={dept.id} value={dept.id} className="font-normal text-slate-700">{dept.name}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
             </div>
-          )}
 
-          {/* 1. Khoa */}
-          <div className="form-group">
-            <label className="form-label" htmlFor="reg-dept">Khoa / Phòng</label>
-            <select
-              id="reg-dept"
-              className="form-input"
-              value={departmentId}
-              onChange={(e) => setDepartmentId(e.target.value)}
-              autoFocus
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {/* 2. Họ tên */}
+              <div className="space-y-2">
+                <Label htmlFor="reg-fullname" className="text-slate-700 font-medium">Họ và tên</Label>
+                <Input
+                  id="reg-fullname"
+                  type="text"
+                  placeholder="VD: Nguyễn Văn A"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="h-11 focus-visible:ring-blue-500 focus-visible:ring-offset-1 text-base bg-white shadow-sm"
+                />
+              </div>
+
+              {/* 3. Nickname */}
+              <div className="space-y-2">
+                <Label htmlFor="reg-nickname" className="text-slate-700 font-medium">Tên đăng nhập (Nickname)</Label>
+                <Input
+                  id="reg-nickname"
+                  type="text"
+                  placeholder="VD: bs.nguyena"
+                  value={nickname}
+                  onChange={(e) => setNickname(e.target.value)}
+                  className="h-11 focus-visible:ring-blue-500 focus-visible:ring-offset-1 text-base bg-white shadow-sm"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {/* 4. Chức vụ */}
+              <div className="space-y-2 flex flex-col justify-end">
+                <Label className="text-slate-700 font-medium">Chức vụ</Label>
+                <Select value={position} onValueChange={setPosition}>
+                  <SelectTrigger className="h-11 bg-white shadow-sm focus:ring-blue-500 focus:ring-offset-1">
+                    <SelectValue placeholder="Chọn chức vụ" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {POSITIONS.map((p) => (
+                      <SelectItem key={p} value={p}>{p}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* 5. Chức danh */}
+              <div className="space-y-2 flex flex-col justify-end">
+                <Label className="text-slate-700 font-medium">Chức danh</Label>
+                <Select value={title} onValueChange={setTitle}>
+                  <SelectTrigger className="h-11 bg-white shadow-sm focus:ring-blue-500 focus:ring-offset-1">
+                    <SelectValue placeholder="Chọn chức danh" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TITLES.map((t) => (
+                      <SelectItem key={t} value={t}>{t}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* 6-7. Mật khẩu */}
+            <div className="space-y-2">
+              <Label htmlFor="reg-password" className="text-slate-700 font-medium">Mật khẩu</Label>
+              <Input
+                id="reg-password"
+                type="password"
+                placeholder="Tối thiểu 6 ký tự"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="h-11 focus-visible:ring-blue-500 focus-visible:ring-offset-1 text-base bg-white shadow-sm"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="reg-confirm" className="text-slate-700 font-medium">Nhập lại mật khẩu</Label>
+              <Input
+                id="reg-confirm"
+                type="password"
+                placeholder="Xác nhận lại mật khẩu"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="h-11 focus-visible:ring-blue-500 focus-visible:ring-offset-1 text-base bg-white shadow-sm"
+              />
+            </div>
+
+            <Button
+              type="submit"
+              className="w-full h-11 text-base font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-all relative overflow-hidden group mt-2"
+              disabled={loading}
             >
-              <option value="">-- Chọn khoa --</option>
-              {groupedDepts.map((facility) => (
-                <optgroup key={facility.id} label={facility.name}>
-                  {facility.depts.map((dept) => (
-                    <option key={dept.id} value={dept.id}>{dept.name}</option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-          </div>
+              {loading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Đang xử lý...
+                </span>
+              ) : (
+                <span className="flex items-center justify-center gap-2">
+                  <UserPlus className="w-5 h-5 transition-transform group-hover:scale-110" />
+                  Tạo tài khoản
+                </span>
+              )}
+            </Button>
+          </form>
+        </CardContent>
 
-          {/* 2. Họ tên */}
-          <div className="form-group">
-            <label className="form-label" htmlFor="reg-fullname">Họ và tên</label>
-            <input
-              id="reg-fullname"
-              className="form-input"
-              type="text"
-              placeholder="Ví dụ: Nguyễn Văn Minh"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-            />
-          </div>
-
-          {/* 3. Nickname */}
-          <div className="form-group">
-            <label className="form-label" htmlFor="reg-nickname">Nickname (tên đăng nhập)</label>
-            <input
-              id="reg-nickname"
-              className="form-input"
-              type="text"
-              placeholder="Ví dụ: bs.minh (chỉ chữ thường, số, chấm)"
-              value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
-            />
-          </div>
-
-          {/* 4. Chức vụ */}
-          <div className="form-group">
-            <label className="form-label" htmlFor="reg-position">Chức vụ</label>
-            <select
-              id="reg-position"
-              className="form-input"
-              value={position}
-              onChange={(e) => setPosition(e.target.value)}
-            >
-              {POSITIONS.map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* 5. Chức danh */}
-          <div className="form-group">
-            <label className="form-label" htmlFor="reg-title">Chức danh</label>
-            <select
-              id="reg-title"
-              className="form-input"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-            >
-              {TITLES.map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* 6-7. Mật khẩu */}
-          <div className="form-group">
-            <label className="form-label" htmlFor="reg-password">Mật khẩu (tối thiểu 6 ký tự)</label>
-            <input
-              id="reg-password"
-              className="form-input"
-              type="password"
-              placeholder="Nhập mật khẩu"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
-
-          <div className="form-group">
-            <label className="form-label" htmlFor="reg-confirm">Nhập lại mật khẩu</label>
-            <input
-              id="reg-confirm"
-              className="form-input"
-              type="password"
-              placeholder="Nhập lại mật khẩu"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-            />
-          </div>
-
-          <button
-            type="submit"
-            className="btn btn-primary btn-lg"
-            disabled={loading}
-            style={{ width: '100%', marginTop: '8px' }}
-          >
-            {loading ? 'Đang đăng ký...' : 'Đăng ký'}
-          </button>
-        </form>
-
-        <div className="auth-card__footer">
-          Đã có tài khoản? <Link to="/login">Đăng nhập</Link>
-        </div>
-      </div>
+        <CardFooter className="flex justify-center border-t border-slate-100 py-4 bg-slate-50/50 rounded-b-xl mt-2">
+          <p className="text-sm text-slate-600">
+            Đã có tài khoản?{' '}
+            <Link to="/login" className="font-semibold text-blue-600 hover:text-blue-700 hover:underline transition-colors">
+              Đăng nhập ngay
+            </Link>
+          </p>
+        </CardFooter>
+      </Card>
     </div>
   );
 }
