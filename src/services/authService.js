@@ -82,25 +82,45 @@ export async function registerUser(nickname, password, { role, departmentId, ful
 }
 
 export async function loginUser(nickname, password) {
-  const q = query(
-    collection(db, 'users'),
-    where('nickname', '==', nickname.toLowerCase())
-  );
-  const snapshot = await getDocs(q);
+  const cleanNick = nickname.trim();
+  const email = generateEmail(cleanNick);
 
-  if (snapshot.empty) {
-    throw new Error('Nickname không tồn tại.');
+  try {
+    // 1. Authenticate first
+    const credential = await signInWithEmailAndPassword(auth, email, password);
+    const uid = credential.user.uid;
+
+    // 2. Fetch user data AFTER successful authentication
+    const userDocRef = doc(db, 'users', uid);
+    const userDoc = await getDoc(userDocRef);
+
+    if (!userDoc.exists()) {
+      // In case user exists in Auth but not Firestore
+      await signOut(auth);
+      throw new Error('Dữ liệu tài khoản không tồn tại.');
+    }
+
+    const userData = userDoc.data();
+
+    // 3. Verify nickname closely matches (case-insensitive) just to be safe
+    if (userData.nickname.toLowerCase() !== cleanNick.toLowerCase()) {
+      await signOut(auth);
+      throw new Error('Nickname không tồn tại hoặc không chính xác.');
+    }
+
+    // 4. Check approval status
+    if (!userData.approved) {
+      await signOut(auth);
+      throw new Error('Tài khoản chưa được phê duyệt. Vui lòng liên hệ quản trị viên.');
+    }
+
+    return { uid: userDoc.id, ...userData };
+  } catch (error) {
+    if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password') {
+      throw new Error('Tài khoản hoặc mật khẩu không đúng.');
+    }
+    throw error;
   }
-
-  const userDoc = snapshot.docs[0];
-  const userData = userDoc.data();
-
-  if (!userData.approved) {
-    throw new Error('Tài khoản chưa được phê duyệt. Vui lòng liên hệ quản trị viên.');
-  }
-
-  await signInWithEmailAndPassword(auth, userData.email, password);
-  return { uid: userDoc.id, ...userData };
 }
 
 export async function logoutUser() {
