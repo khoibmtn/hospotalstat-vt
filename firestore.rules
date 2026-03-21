@@ -1,0 +1,62 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && getUserData().role == 'admin';
+    }
+    
+    function isKeHoach() {
+      return isAuthenticated() && getUserData().role == 'kehoach';
+    }
+    
+    function hasDepartmentAccess(deptId) {
+      let deptIds = getUserData().get('departmentIds', []);
+      return isAuthenticated() && (deptId in deptIds);
+    }
+    
+    function canEditReport(deptId) {
+      return isAdmin() || isKeHoach() || hasDepartmentAccess(deptId);
+    }
+
+    match /facilities/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    
+    match /departments/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.auth.uid == userId; 
+      allow update: if isAdmin() || (isAuthenticated() && request.auth.uid == userId);
+      allow delete: if isAdmin();
+    }
+    
+    match /settings/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    
+    match /reports/{docId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && canEditReport(request.resource.data.departmentId);
+      allow delete: if isAdmin() || isKeHoach(); 
+    }
+    
+    match /{document=**} {
+      allow read, write: if false; 
+    }
+  }
+}
