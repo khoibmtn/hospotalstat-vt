@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { getReportsByDate, lockReportsByDate, unlockReport } from '../services/reportService';
 import { getSettings, updateSettings } from '../services/settingsService';
-import { formatDisplayDate, getToday, getYesterday } from '../utils/dateUtils';
+import { formatDisplayDate, getToday, getYesterday, shouldAutoLock } from '../utils/dateUtils';
 import { REPORT_STATUS, ROLES } from '../utils/constants';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -76,8 +76,11 @@ export default function LockManagementPage() {
     showToast(`Giờ khóa tự động: ${hour}h`);
   }
 
-  const lockedCount = reports.filter((r) => r.status === REPORT_STATUS.LOCKED).length;
-  const openCount = reports.filter((r) => r.status === REPORT_STATUS.OPEN).length;
+  const isAutoLocked = settings.autoLockEnabled && shouldAutoLock(selectedDate, settings.autoLockHour);
+
+  // If auto-locked, all OPEN reports are effectively locked.
+  const lockedCount = reports.filter((r) => r.status === REPORT_STATUS.LOCKED || isAutoLocked).length;
+  const openCount = reports.filter((r) => r.status === REPORT_STATUS.OPEN && !isAutoLocked).length;
 
   if (loading && Object.keys(settings).length === 0) {
     return (
@@ -232,6 +235,10 @@ export default function LockManagementPage() {
                             <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 gap-1 pl-1.5 pr-2 w-[85px] justify-center shadow-none">
                               <Lock className="w-3 h-3" /> Đã khóa
                             </Badge>
+                          ) : isAutoLocked ? (
+                            <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 gap-1 pl-1.5 pr-2 w-[110px] justify-center shadow-none" title="Khóa tự động theo giờ cài đặt">
+                              <Lock className="w-3 h-3" /> Khóa (Auto)
+                            </Badge>
                           ) : (
                             <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 gap-1 pl-1.5 pr-2 w-[85px] justify-center shadow-none">
                               <Unlock className="w-3 h-3" /> Đang mở
@@ -239,7 +246,7 @@ export default function LockManagementPage() {
                           )}
                         </td>
                         <td className="px-4 py-3 text-slate-600">{r.reportedBy || <span className="text-slate-400 italic">Chưa nhập</span>}</td>
-                        <td className="px-4 py-3 text-slate-600">{r.lockedBy || '—'}</td>
+                        <td className="px-4 py-3 text-slate-600">{r.status === REPORT_STATUS.LOCKED ? (r.lockedBy || '—') : isAutoLocked ? 'Hệ thống' : '—'}</td>
                         <td className="px-4 py-3 text-right">
                           {r.status === REPORT_STATUS.LOCKED && (
                             <Button

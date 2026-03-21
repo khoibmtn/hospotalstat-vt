@@ -5,7 +5,7 @@ import { getDepartments, seedInitialData } from '../services/departmentService';
 import { getSettings } from '../services/settingsService';
 import { canAccessDepartment } from '../services/authService';
 import { computeBnHienTai } from '../utils/computedColumns';
-import { getCurrentReportDate, formatDisplayDate, getDaysInMonthUpTo } from '../utils/dateUtils';
+import { getCurrentReportDate, formatDisplayDate, getDaysInMonthUpTo, shouldAutoLock } from '../utils/dateUtils';
 import { INPATIENT_FIELDS, REPORT_STATUS, ROLES } from '../utils/constants';
 
 import { Badge } from '@/components/ui/badge';
@@ -21,6 +21,7 @@ export default function DataEntryPage() {
   const [initLoading, setInitLoading] = useState(true);
   const [departments, setDepartments] = useState([]);
   const [reportDate, setReportDate] = useState('');
+  const [settings, setSettings] = useState(null);
   
   // Selection state
   const [selectedDeptId, setSelectedDeptId] = useState('');
@@ -42,8 +43,9 @@ export default function DataEntryPage() {
       setInitLoading(true);
       try {
         await seedInitialData();
-        const settings = await getSettings();
-        const today = getCurrentReportDate(settings.autoLockHour);
+        const settingsData = await getSettings();
+        setSettings(settingsData);
+        const today = getCurrentReportDate(settingsData.autoLockHour);
         setReportDate(today);
 
         const allDepts = await getDepartments();
@@ -297,8 +299,12 @@ export default function DataEntryPage() {
     }
   };
 
-  function canEdit(report) {
-    if (!report || report.status === REPORT_STATUS.LOCKED) return false;
+  function canEdit(report, dateStr) {
+    if (!report) return false;
+    const explicitlyLocked = report.status === REPORT_STATUS.LOCKED;
+    const autoLocked = settings?.autoLockEnabled && shouldAutoLock(dateStr, settings.autoLockHour);
+    if (explicitlyLocked || autoLocked) return false;
+    
     if (user.role === ROLES.ADMIN) return true;
     if (user.role === ROLES.KEHOACH) return true;
     return canAccessDepartment(user, report.departmentId);
@@ -427,8 +433,10 @@ export default function DataEntryPage() {
                 <tbody className="divide-y divide-slate-100">
                   {daysInMonth.map((dateStr) => {
                     const report = monthReports[dateStr] || {};
-                    const isLocked = report.status === REPORT_STATUS.LOCKED;
-                    const editable = canEdit(report);
+                    const explicitlyLocked = report.status === REPORT_STATUS.LOCKED;
+                    const autoLocked = settings?.autoLockEnabled && shouldAutoLock(dateStr, settings.autoLockHour);
+                    const isLocked = explicitlyLocked || autoLocked;
+                    const editable = canEdit(report, dateStr);
                     const rowClass = editable ? 'bg-white group even:bg-slate-50 odd:bg-white hover:bg-slate-200 focus-within:bg-blue-100 focus-within:hover:bg-blue-100 transition-colors' : 'bg-slate-50 text-slate-500';
 
                     return (
@@ -437,8 +445,8 @@ export default function DataEntryPage() {
                           {formatDisplayDate(dateStr)}
                         </td>
                         <td className="px-2 py-2 border-r border-slate-100 text-center">
-                          <div className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[10px] uppercase font-bold tracking-wide ${isLocked ? 'bg-slate-200 text-slate-600' : 'bg-emerald-100 text-emerald-700'}`}>
-                            {isLocked ? 'Đã khóa' : 'Đang mở'}
+                          <div className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[10px] uppercase font-bold tracking-wide ${explicitlyLocked ? 'bg-slate-200 text-slate-600' : autoLocked ? 'bg-orange-100 text-orange-700' : 'bg-emerald-100 text-emerald-700'}`} title={autoLocked ? "Khóa tự động theo cài đặt hệ thống" : ""}>
+                            {explicitlyLocked ? 'Đã khóa' : autoLocked ? 'Khóa (Auto)' : 'Đang mở'}
                           </div>
                         </td>
                         {INPATIENT_FIELDS.map((field) => (

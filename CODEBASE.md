@@ -33,6 +33,7 @@
 ## Recent Changes
 - Overhauled UI/UX with "UI/UX Pro Max" styling, implementing consistent focus-within shading for data tables, better border and hover states for form controls (inputs/selects).
 - Refined the Excel Import functionality: removed "Bệnh nhân cũ" from the template and implemented an explicit UI input to establish a baseline for initial data calculations.
+- Fixed data locking logic: integrated `shouldAutoLock` function into `DataEntryPage` and `LockManagementPage` to ensure reports are truly locked in the UI after the configured auto-lock hour.
 - Cleaned up security console and login UI.
 
 ## Known Issues / TODOs
