@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Button } from '../ui/Button';
+import { Button } from '../ui/button';
 import { Upload, Download, AlertCircle, CheckCircle2, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { parse, isValid, format, subDays } from 'date-fns';
