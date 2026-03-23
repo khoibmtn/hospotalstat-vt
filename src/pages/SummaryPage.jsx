@@ -2,12 +2,15 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { getReportsByDateRange, getReportsByDepartment } from '../services/reportService';
 import { getDepartments, getFacilities } from '../services/departmentService';
 import { aggregateRows } from '../utils/computedColumns';
-import { format, subDays, startOfMonth } from 'date-fns';
+import { format, parse, subDays, startOfMonth } from 'date-fns';
+import { formatDisplayDate } from '../utils/dateUtils';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { PieChart, CalendarDays } from 'lucide-react';
 
 import KCBOverviewTable from '../components/summary/KCBOverviewTable';
@@ -179,12 +182,22 @@ export default function SummaryPage() {
                 <label className="text-[11px] font-semibold text-slate-500 uppercase flex items-center gap-1">
                   <CalendarDays className="w-3 h-3" /> Từ ngày
                 </label>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => handleStartDateChange(e.target.value)}
-                  className="flex h-9 w-full rounded-md border border-input bg-white px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                />
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full h-9 justify-start text-left font-normal text-sm cursor-pointer">
+                      <CalendarDays className="mr-2 h-3.5 w-3.5 text-slate-400" />
+                      {formatDisplayDate(startDate)}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={parse(startDate, 'yyyy-MM-dd', new Date())}
+                      onSelect={(d) => d && handleStartDateChange(format(d, 'yyyy-MM-dd'))}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
               </div>
 
               {/* End date */}
@@ -192,13 +205,23 @@ export default function SummaryPage() {
                 <label className="text-[11px] font-semibold text-slate-500 uppercase flex items-center gap-1">
                   <CalendarDays className="w-3 h-3" /> Đến ngày
                 </label>
-                <input
-                  type="date"
-                  value={endDate}
-                  min={startDate}
-                  onChange={(e) => handleEndDateChange(e.target.value)}
-                  className="flex h-9 w-full rounded-md border border-input bg-white px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                />
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full h-9 justify-start text-left font-normal text-sm cursor-pointer">
+                      <CalendarDays className="mr-2 h-3.5 w-3.5 text-slate-400" />
+                      {formatDisplayDate(endDate)}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={parse(endDate, 'yyyy-MM-dd', new Date())}
+                      onSelect={(d) => d && handleEndDateChange(format(d, 'yyyy-MM-dd'))}
+                      disabled={(d) => d < parse(startDate, 'yyyy-MM-dd', new Date())}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
 

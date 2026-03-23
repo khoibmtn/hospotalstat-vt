@@ -366,38 +366,42 @@ SummaryPage.jsx
 
 ### 4.4 Quản lý khóa (LockManagementPage)
 
-**Redesigned UX (2026-03-23) — Action-first, progressive disclosure:**
+**Redesigned UX (2026-03-23) — 2-column layout with treeview:**
 
 **Layout structure:**
 ```
-┌─ Collapsible: Cài đặt khóa tự động (collapsed default, badge BẬT/TẮT)
-├─ Main action card:
-│  ├── Date range (Từ ngày / Đến ngày) + Presets (Hôm nay, Hôm qua, 7 ngày, Tháng này, Tháng trước)
-│  ├── Dept scope: Radio "Tất cả khoa" (default) / "Chọn cụ thể" → progressive disclosure
-│  │   └── Facility groups → chip checkboxes per dept + select/deselect all per facility
-│  ├── Explanation text: "🟢 X báo cáo đang mở → có thể khóa" / "🔴 Y báo cáo đang khóa → có thể mở"
-│  ├── Contextual CTAs: Only show if count > 0
-│  │   ├── [🔒 Khóa X báo cáo] (red, prominent)
-│  │   └── [🔓 Mở khóa Y báo cáo] (outlined)
-│  └── Nothing-to-do state: "Không có báo cáo nào cần thao tác" when both counts = 0
-└─ Collapsible: Xem chi tiết (badge count)
-   └── Tree view: Date nodes (collapsible, expanded default) → Dept children with status icon + unlock button
+┌─────────────────────────────────────────────────────────────────┐
+│ Collapsible: Cài đặt khóa tự động (collapsed default)          │
+├──────────────────────────┬──────────────────────────────────────┤
+│ LEFT (sticky, 360px)     │ RIGHT (scrollable)                   │
+│ ├ Date range (Calendar)  │ ├ Selection summary + CTAs            │
+│ │  Popover+Calendar vi   │ │  "X khoa · Y ngày → Z báo cáo"     │
+│ │  + Presets              │ │  [Khóa X báo cáo] [Mở khóa Y]     │
+│ ├ DeptTreeView           │ ├ Detail card                         │
+│ │  Toàn viện             │ │  Expand/Collapse All                │
+│ │  ├ Cơ sở 1             │ │  ├ 23/03/2026  (2 mở, 1 khóa)     │
+│ │  │ ├ Nội 1 ✓           │ │  │ ├ Nội 1 🔓 [Mở khóa]           │
+│ │  │ ├ Nội 2 ✓           │ │  │ ├ Nội 2 🟢 [Khóa]              │
+│ │  ├ Cơ sở 2             │ │  └ ...                              │
+│ │  Bỏ chọn tất cả       │ │                                     │
+│ └ (Mobile: summary+CTAs)│ └                                     │
+└──────────────────────────┴──────────────────────────────────────┘
 ```
 
+**Key components:**
+- `DeptTreeView` — Toàn viện → Cơ sở → Khoa, tri-state checkbox cascade
+- `DateTreeNode` — Collapsible date groups with per-row lock/unlock buttons
+- Vietnamese Calendar — `react-day-picker` v9 + `date-fns/locale/vi` in Popover
+
 **Confirm dialog:**
-- Hiển thị đầy đủ: "Bạn có chắc muốn KHÓA/MỞ X báo cáo?"
-- Chi tiết: Từ ngày – Đến ngày, số khoa, danh sách tên khoa
-- 2 nút: Xác nhận (destructive) + Hủy
+- Action type (KHÓA/MỞ KHÓA), report count, date range, selected departments
+- Destructive confirmation button
 
 **Service layer (reportService.js):**
 - `lockReportsBatch(startDate, endDate, departmentIds)` — Firestore batch chunks (499/batch)
 - `unlockReportsBatch(startDate, endDate, departmentIds)` — tương tự
+- `lockReport(reportId)` / `unlockReport(reportId)` — single report actions
 - `getReportsByDateRange(startDate, endDate)` — query by compound index
-
-**Tree view detail (DateTreeNode component):**
-- Level 1: Ngày — header with ChevronDown/Right, count "X mở Y khóa"
-- Level 2: Khoa — icon Lock/Unlock, tên khoa, lockedBy, nút "Mở khóa" per item
-- Default: tất cả nodes expanded
 
 ---
 

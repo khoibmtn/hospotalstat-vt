@@ -234,6 +234,21 @@ export async function unlockReport(reportId) {
 }
 
 /**
+ * Lock a single report by ID
+ */
+export async function lockReport(reportId, lockedBy = 'Admin') {
+  await setDoc(
+    doc(db, 'dailyReports', reportId),
+    {
+      status: REPORT_STATUS.LOCKED,
+      lockedAt: serverTimestamp(),
+      lockedBy,
+    },
+    { merge: true }
+  );
+}
+
+/**
  * Lock reports matching a date range and optional department IDs.
  * Firestore batch limit = 500 writes, so we chunk if needed.
  */
