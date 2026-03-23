@@ -25,16 +25,43 @@ export function applyComputedColumns(row) {
 }
 
 /**
- * Aggregate multiple rows (e.g., all departments for a date)
+ * Aggregate multiple rows (e.g., all days for a department over a period)
+ * - bnCu: value from the earliest date row (đầu kỳ)
+ * - bnHienTai: value from the latest date row (cuối kỳ)
+ * - Flow fields (vào, đến, đi, ra, tử, chuyển): summed
  */
 export function aggregateRows(rows) {
-  const sumKeys = ['bnCu', 'vaoVien', 'chuyenDen', 'chuyenDi', 'raVien', 'tuVong', 'chuyenVien'];
+  if (!rows || rows.length === 0) return {};
+
+  const flowKeys = ['vaoVien', 'chuyenDen', 'chuyenDi', 'raVien', 'tuVong', 'chuyenVien'];
   const totals = {};
 
-  sumKeys.forEach((key) => {
+  flowKeys.forEach((key) => {
     totals[key] = rows.reduce((sum, row) => sum + (Number(row[key]) || 0), 0);
   });
 
-  totals.bnHienTai = computeBnHienTai(totals);
+  // Sort rows by date to find first and last
+  const sorted = [...rows].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+  totals.bnCu = Number(sorted[0].bnCu) || 0;
+  totals.bnHienTai = Number(sorted[sorted.length - 1].bnHienTai) || 0;
+
+  return totals;
+}
+
+/**
+ * Aggregate already-summarized department rows into a grand total.
+ * All fields are summed directly (each dept already has correct bnCu/bnHienTai).
+ */
+export function aggregateDeptSummaries(deptRows) {
+  if (!deptRows || deptRows.length === 0) return {};
+
+  const allKeys = ['bnCu', 'vaoVien', 'chuyenDen', 'chuyenDi', 'raVien', 'tuVong', 'chuyenVien', 'bnHienTai'];
+  const totals = {};
+
+  allKeys.forEach((key) => {
+    totals[key] = deptRows.reduce((sum, row) => sum + (Number(row[key]) || 0), 0);
+  });
+
   return totals;
 }

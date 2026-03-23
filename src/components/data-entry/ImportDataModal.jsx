@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '../ui/button';
 import { Upload, Download, AlertCircle, CheckCircle2, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -14,6 +14,8 @@ export default function ImportDataModal({ isOpen, onClose, departments, onImport
   const [error, setError] = useState(null);
   const [hasParseError, setHasParseError] = useState(false);
   const [initialBnCu, setInitialBnCu] = useState(0);
+  const hasPreviousDBRecordRef = useRef(false);
+  const dbRunningBnHienTaiRef = useRef(0);
 
   useEffect(() => {
     if (!isOpen) {
@@ -145,6 +147,10 @@ export default function ImportDataModal({ isOpen, onClose, departments, onImport
         hasPreviousDBRecord = true;
       }
 
+      // Store in refs for local recalculation
+      hasPreviousDBRecordRef.current = hasPreviousDBRecord;
+      dbRunningBnHienTaiRef.current = runningBnHienTai;
+
       const finalPreview = parsedRows.map((row, idx) => {
         let computedBnCu = 0;
 
@@ -253,10 +259,18 @@ export default function ImportDataModal({ isOpen, onClose, departments, onImport
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
                 value={initialBnCu}
                 onChange={(e) => {
-                  setInitialBnCu(e.target.value);
-                  // Reprocess if file already uploaded to reflect changes
-                  if (file && selectedDept) {
-                    processFile(file, selectedDept);
+                  const newVal = e.target.value;
+                  setInitialBnCu(newVal);
+                  // Recalculate preview locally (no file re-read, no Firestore query)
+                  if (previewData.length > 0 && !hasPreviousDBRecordRef.current) {
+                    let running = 0;
+                    const updated = previewData.map((row, idx) => {
+                      const computedBnCu = idx === 0 ? (Number(newVal) || 0) : running;
+                      const bnHienTai = computedBnCu + row.vaoVien + row.chuyenDen - row.chuyenDi - row.raVien - row.tuVong - row.chuyenVien;
+                      running = bnHienTai;
+                      return { ...row, bnCu: computedBnCu, bnHienTai };
+                    });
+                    setPreviewData(updated);
                   }
                 }}
               />

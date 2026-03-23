@@ -57,3 +57,5 @@ export const DEFAULT_INPATIENT_VALUES = {
   tuVong: 0,
   chuyenVien: 0,
 };
+
+

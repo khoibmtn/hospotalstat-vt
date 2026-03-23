@@ -69,6 +69,11 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
     
+    match /diseaseCatalog/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    
     match /{document=**} {
       allow read, write: if false; 
     }

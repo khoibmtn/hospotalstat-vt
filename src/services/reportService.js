@@ -108,9 +108,25 @@ export async function saveReport(dateStr, departmentId, departmentName, facility
   }
 
   const diff = bnHienTai - oldBnHienTai;
+  
+  const oldInfectiousData = oldData ? (oldData.infectiousData || []) : [];
+  const newInfectiousData = data.infectiousData || [];
+  const diffInfectious = {};
+  
+  newInfectiousData.forEach(newDisease => {
+     const oldDisease = oldInfectiousData.find(d => d.diseaseName === newDisease.diseaseName);
+     const oldVal = oldDisease ? oldDisease.bnHienTai : 0;
+     const dDiff = newDisease.bnHienTai - oldVal;
+     if (dDiff !== 0) diffInfectious[newDisease.diseaseName] = dDiff;
+  });
+  oldInfectiousData.forEach(oldDisease => {
+     if (!newInfectiousData.find(d => d.diseaseName === oldDisease.diseaseName)) {
+         if (oldDisease.bnHienTai !== 0) diffInfectious[oldDisease.diseaseName] = -oldDisease.bnHienTai;
+     }
+  });
 
-  // If there's a change in bnHienTai, cascade to subsequent existing days
-  if (diff !== 0) {
+  // If there's a change in bnHienTai or diffInfectious has keys
+  if (diff !== 0 || Object.keys(diffInfectious).length > 0) {
     const q = query(
       collection(db, 'dailyReports'),
       where('departmentId', '==', departmentId),
@@ -121,11 +137,42 @@ export async function saveReport(dateStr, departmentId, departmentName, facility
     
     snap.docs.forEach((d) => {
       const subsequentData = d.data();
-      batch.update(d.ref, {
-        bnCu: (subsequentData.bnCu || 0) + diff,
-        bnHienTai: (subsequentData.bnHienTai || 0) + diff,
-        updatedAt: serverTimestamp(),
-      });
+      const updates = { updatedAt: serverTimestamp() };
+      
+      if (diff !== 0) {
+         updates.bnCu = (subsequentData.bnCu || 0) + diff;
+         updates.bnHienTai = (subsequentData.bnHienTai || 0) + diff;
+      }
+      
+      if (Object.keys(diffInfectious).length > 0) {
+         let subInfectious = [...(subsequentData.infectiousData || [])];
+         let infectiousChanged = false;
+         
+         Object.keys(diffInfectious).forEach(dName => {
+             const dDiff = diffInfectious[dName];
+             const idx = subInfectious.findIndex(x => x.diseaseName === dName);
+             if (idx >= 0) {
+                 subInfectious[idx] = {
+                     ...subInfectious[idx],
+                     bnCu: (subInfectious[idx].bnCu || 0) + dDiff,
+                     bnHienTai: (subInfectious[idx].bnHienTai || 0) + dDiff
+                 };
+                 infectiousChanged = true;
+             } else if (dDiff !== 0) {
+                 subInfectious.push({
+                     diseaseName: dName,
+                     bnCu: dDiff,
+                     vaoVien: 0, chuyenDen: 0, chuyenDi: 0,
+                     raVien: 0, tuVong: 0, chuyenVien: 0,
+                     bnHienTai: dDiff
+                 });
+                 infectiousChanged = true;
+             }
+         });
+         
+         if (infectiousChanged) updates.infectiousData = subInfectious;
+      }
+      batch.update(d.ref, updates);
     });
   }
 
@@ -187,6 +234,63 @@ export async function unlockReport(reportId) {
 }
 
 /**
+ * Lock reports matching a date range and optional department IDs.
+ * Firestore batch limit = 500 writes, so we chunk if needed.
+ */
+export async function lockReportsBatch(startDate, endDate, departmentIds, lockedBy = 'system') {
+  const reports = await getReportsByDateRange(startDate, endDate);
+  const toUpdate = reports.filter(
+    (r) => r.status !== REPORT_STATUS.LOCKED && (departmentIds.length === 0 || departmentIds.includes(r.departmentId))
+  );
+  if (toUpdate.length === 0) return 0;
+
+  const chunks = [];
+  for (let i = 0; i < toUpdate.length; i += 499) {
+    chunks.push(toUpdate.slice(i, i + 499));
+  }
+  for (const chunk of chunks) {
+    const batch = writeBatch(db);
+    chunk.forEach((r) => {
+      batch.update(doc(db, 'dailyReports', r.id), {
+        status: REPORT_STATUS.LOCKED,
+        lockedAt: serverTimestamp(),
+        lockedBy,
+      });
+    });
+    await batch.commit();
+  }
+  return toUpdate.length;
+}
+
+/**
+ * Unlock reports matching a date range and optional department IDs.
+ */
+export async function unlockReportsBatch(startDate, endDate, departmentIds) {
+  const reports = await getReportsByDateRange(startDate, endDate);
+  const toUpdate = reports.filter(
+    (r) => r.status === REPORT_STATUS.LOCKED && (departmentIds.length === 0 || departmentIds.includes(r.departmentId))
+  );
+  if (toUpdate.length === 0) return 0;
+
+  const chunks = [];
+  for (let i = 0; i < toUpdate.length; i += 499) {
+    chunks.push(toUpdate.slice(i, i + 499));
+  }
+  for (const chunk of chunks) {
+    const batch = writeBatch(db);
+    chunk.forEach((r) => {
+      batch.update(doc(db, 'dailyReports', r.id), {
+        status: REPORT_STATUS.OPEN,
+        lockedAt: null,
+        lockedBy: null,
+      });
+    });
+    await batch.commit();
+  }
+  return toUpdate.length;
+}
+
+/**
  * Initialize today's reports for all departments that don't have one yet.
  * BN cũ = BN hiện tại from yesterday's report
  */
@@ -204,12 +308,28 @@ export async function initializeDailyReports(dateStr, departments) {
       const yesterdayReport = await getReport(yesterday, dept.id);
       const bnCu = yesterdayReport ? (yesterdayReport.bnHienTai || 0) : 0;
 
+      const infectiousData = [];
+      if (yesterdayReport && yesterdayReport.infectiousData) {
+        yesterdayReport.infectiousData.forEach(disease => {
+          if (disease.bnHienTai > 0) {
+            infectiousData.push({
+               diseaseName: disease.diseaseName,
+               bnCu: disease.bnHienTai,
+               ...DEFAULT_INPATIENT_VALUES,
+               bnHienTai: disease.bnHienTai
+            });
+          }
+        });
+      }
+
       const reportData = {
         date: dateStr,
         departmentId: dept.id,
         departmentName: dept.name,
         facilityId: dept.facilityId,
         reportedBy: null,
+        shiftName: '',
+        infectiousData,
         bnCu,
         ...DEFAULT_INPATIENT_VALUES,
         bnHienTai: bnCu,
@@ -247,26 +367,45 @@ export async function initializeDepartmentReportsForMonth(dateStr, department) {
   existingReports.forEach(r => existingMap.set(r.date, r));
   
   let lastBnHienTai = 0;
+  let lastInfectiousData = [];
   if (!existingMap.has(daysInMonth[0])) {
     const lastDayConv = subDays(new Date(daysInMonth[0] + 'T00:00:00'), 1);
     const lastDayStr = formatDate(lastDayConv);
     const lastReport = await getReport(lastDayStr, department.id);
-    if (lastReport) lastBnHienTai = lastReport.bnHienTai || 0;
+    if (lastReport) {
+      lastBnHienTai = lastReport.bnHienTai || 0;
+      lastInfectiousData = lastReport.infectiousData || [];
+    }
   }
 
   for (const day of daysInMonth) {
     if (existingMap.has(day)) {
       lastBnHienTai = existingMap.get(day).bnHienTai || 0;
+      lastInfectiousData = existingMap.get(day).infectiousData || [];
     } else {
       const docId = getReportDocId(day, department.id);
       const bnCu = lastBnHienTai;
       
+      const newInfectiousData = [];
+      lastInfectiousData.forEach(disease => {
+          if (disease.bnHienTai > 0) {
+            newInfectiousData.push({
+               diseaseName: disease.diseaseName,
+               bnCu: disease.bnHienTai,
+               ...DEFAULT_INPATIENT_VALUES,
+               bnHienTai: disease.bnHienTai
+            });
+          }
+      });
+
       const reportData = {
         date: day,
         departmentId: department.id,
         departmentName: department.name,
         facilityId: department.facilityId,
         reportedBy: null,
+        shiftName: '',
+        infectiousData: newInfectiousData,
         bnCu,
         ...DEFAULT_INPATIENT_VALUES,
         bnHienTai: bnCu,
@@ -279,6 +418,7 @@ export async function initializeDepartmentReportsForMonth(dateStr, department) {
       
       batch.set(doc(db, 'dailyReports', docId), reportData);
       lastBnHienTai = bnCu;
+      lastInfectiousData = newInfectiousData;
       created++;
     }
   }

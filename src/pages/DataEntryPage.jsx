@@ -7,12 +7,15 @@ import { canAccessDepartment } from '../services/authService';
 import { computeBnHienTai } from '../utils/computedColumns';
 import { getCurrentReportDate, formatDisplayDate, getDaysInMonthUpTo, shouldAutoLock } from '../utils/dateUtils';
 import { INPATIENT_FIELDS, REPORT_STATUS, ROLES } from '../utils/constants';
+import { getDiseaseCatalog } from '../services/diseaseCatalogService';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Save, FileText, CheckCircle2, AlertCircle, Lock } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Loader2, Save, FileText, CheckCircle2, AlertCircle, Lock, Unlock, Plus, Trash2 } from 'lucide-react';
 
 export default function DataEntryPage() {
   const { user } = useAuth();
@@ -21,6 +24,7 @@ export default function DataEntryPage() {
   const [initLoading, setInitLoading] = useState(true);
   const [departments, setDepartments] = useState([]);
   const [reportDate, setReportDate] = useState('');
+  const [detailDate, setDetailDate] = useState('');
   const [settings, setSettings] = useState(null);
   
   // Selection state
@@ -32,6 +36,7 @@ export default function DataEntryPage() {
   const [dataLoading, setDataLoading] = useState(false);
   const [saving, setSaving] = useState({});
   const [toast, setToast] = useState(null);
+  const [diseaseCatalog, setDiseaseCatalog] = useState([]);
 
   const showToast = useCallback((msg, type = 'success') => {
     setToast({ msg, type });
@@ -47,6 +52,16 @@ export default function DataEntryPage() {
         setSettings(settingsData);
         const today = getCurrentReportDate(settingsData.autoLockHour);
         setReportDate(today);
+        setDetailDate(today);
+
+        // Fetch disease catalog separately so a failure doesn't block other data
+        try {
+          const diseaseCat = await getDiseaseCatalog();
+          setDiseaseCatalog(diseaseCat);
+        } catch (e) {
+          console.warn('Disease catalog not yet available:', e.message);
+          setDiseaseCatalog([]);
+        }
 
         const allDepts = await getDepartments();
         const activeDepts = allDepts.filter((d) => d.active !== false);
@@ -122,31 +137,117 @@ export default function DataEntryPage() {
   };
 
   const handleFieldChange = (date, field, value) => {
-    const numValue = value === '' ? 0 : parseInt(value, 10) || 0;
+    const isStringField = field === 'shiftName';
+    const finalValue = isStringField ? value : (value === '' ? 0 : parseInt(value, 10) || 0);
 
     setMonthReports((prev) => {
       const newState = { ...prev };
       const prevReport = newState[date] || {};
-      const updated = { ...prevReport, [field]: numValue };
-      updated.bnHienTai = computeBnHienTai(updated);
-      newState[date] = updated;
-
-      // Local Cascade: instantly update BN Cũ and BN Hiện Tại for subsequent days
-      const startIndex = daysInMonth.indexOf(date);
-      if (startIndex !== -1) {
-        let currentBnHienTai = updated.bnHienTai;
-        for (let i = startIndex + 1; i < daysInMonth.length; i++) {
-          const nextDate = daysInMonth[i];
-          const nextReport = { ...(newState[nextDate] || {}) };
-          nextReport.bnCu = currentBnHienTai;
-          nextReport.bnHienTai = computeBnHienTai(nextReport);
-          newState[nextDate] = nextReport;
-          currentBnHienTai = nextReport.bnHienTai;
+      const updated = { ...prevReport, [field]: finalValue };
+      
+      if (!isStringField) {
+        updated.bnHienTai = computeBnHienTai(updated);
+        // Local Cascade: instantly update BN Cũ and BN Hiện Tại for subsequent days
+        const startIndex = daysInMonth.indexOf(date);
+        if (startIndex !== -1) {
+          let currentBnHienTai = updated.bnHienTai;
+          for (let i = startIndex + 1; i < daysInMonth.length; i++) {
+            const nextDate = daysInMonth[i];
+            const nextReport = { ...(newState[nextDate] || {}) };
+            nextReport.bnCu = currentBnHienTai;
+            nextReport.bnHienTai = computeBnHienTai(nextReport);
+            newState[nextDate] = nextReport;
+            currentBnHienTai = nextReport.bnHienTai;
+          }
         }
       }
-
+      
+      newState[date] = updated;
       return newState;
     });
+  };
+
+  const handleDiseaseChange = (date, idx, field, value) => {
+    let finalValue = value;
+    if (field !== 'diseaseName') {
+        finalValue = value === '' ? 0 : parseInt(value, 10) || 0;
+    }
+
+    setMonthReports((prev) => {
+      const newState = { ...prev };
+      const prevReport = newState[date] || {};
+      const newInfectious = [...(prevReport.infectiousData || [])];
+      
+      const updatedDisease = { ...newInfectious[idx], [field]: finalValue };
+      if (field !== 'diseaseName') {
+         updatedDisease.bnHienTai = computeBnHienTai(updatedDisease);
+      }
+      newInfectious[idx] = updatedDisease;
+      newState[date] = { ...prevReport, infectiousData: newInfectious };
+
+      // Local Cascade for diseases
+      if (field !== 'diseaseName') {
+        const startIndex = daysInMonth.indexOf(date);
+        if (startIndex !== -1) {
+          let currentBnHienTai = updatedDisease.bnHienTai;
+          const dName = updatedDisease.diseaseName;
+          
+          if (dName) {
+             for (let i = startIndex + 1; i < daysInMonth.length; i++) {
+                const nextDate = daysInMonth[i];
+                const nextReport = { ...(newState[nextDate] || {}) };
+                const nextInf = [...(nextReport.infectiousData || [])];
+                
+                const nextIdx = nextInf.findIndex(d => d.diseaseName === dName);
+                if (nextIdx >= 0) {
+                   const nextUpd = { ...nextInf[nextIdx], bnCu: currentBnHienTai };
+                   nextUpd.bnHienTai = computeBnHienTai(nextUpd);
+                   nextInf[nextIdx] = nextUpd;
+                   currentBnHienTai = nextUpd.bnHienTai;
+                } else if (currentBnHienTai > 0) {
+                   const gen = {
+                      diseaseName: dName,
+                      bnCu: currentBnHienTai,
+                      vaoVien: 0, chuyenDen: 0, chuyenDi: 0,
+                      raVien: 0, tuVong: 0, chuyenVien: 0,
+                      bnHienTai: currentBnHienTai
+                   };
+                   nextInf.push(gen);
+                }
+                newState[nextDate] = { ...nextReport, infectiousData: nextInf };
+             }
+          }
+        }
+      }
+      return newState;
+    });
+  };
+
+  const handleAddDisease = (date) => {
+    setMonthReports((prev) => {
+      const newState = { ...prev };
+      const prevReport = newState[date] || {};
+      const newInfectious = [...(prevReport.infectiousData || [])];
+      newInfectious.push({
+         diseaseName: '',
+         bnCu: 0, vaoVien: 0, chuyenDen: 0, chuyenDi: 0,
+         raVien: 0, tuVong: 0, chuyenVien: 0, bnHienTai: 0
+      });
+      newState[date] = { ...prevReport, infectiousData: newInfectious };
+      return newState;
+    });
+  };
+
+  const handleRemoveDisease = (date, idx) => {
+    setMonthReports((prev) => {
+      const newState = { ...prev };
+      const prevReport = newState[date] || {};
+      const newInfectious = [...(prevReport.infectiousData || [])];
+      newInfectious.splice(idx, 1);
+      newState[date] = { ...prevReport, infectiousData: newInfectious };
+      return newState;
+    });
+    // Triggers auto-save via handleAutoSaveRow if attached to trash button click
   };
 
   const handleKeyDown = (e) => {
@@ -165,7 +266,7 @@ export default function DataEntryPage() {
 
   const handleAutoSaveRow = async (date) => {
     const report = monthReports[date];
-    if (!report || !canEdit(report)) return;
+    if (!report || !canEdit(report, date)) return;
 
     const dept = departments.find((d) => d.id === selectedDeptId);
     if (!dept) return;
@@ -177,6 +278,8 @@ export default function DataEntryPage() {
         dept.name,
         dept.facilityId,
         {
+          shiftName: report.shiftName || '',
+          infectiousData: report.infectiousData || [],
           bnCu: report.bnCu || 0,
           vaoVien: report.vaoVien || 0,
           chuyenDen: report.chuyenDen || 0,
@@ -243,7 +346,7 @@ export default function DataEntryPage() {
     // Filter only editable rows to save
     const editableDays = daysInMonth.filter(dateStr => {
       const report = monthReports[dateStr];
-      return canEdit(report);
+      return canEdit(report, dateStr);
     });
 
     if (editableDays.length === 0) {
@@ -266,6 +369,8 @@ export default function DataEntryPage() {
           dept.name,
           dept.facilityId,
           {
+            shiftName: report.shiftName || '',
+            infectiousData: report.infectiousData || [],
             bnCu: report.bnCu || 0,
             vaoVien: report.vaoVien || 0,
             chuyenDen: report.chuyenDen || 0,
@@ -396,7 +501,7 @@ export default function DataEntryPage() {
           </Select>
           <Button 
             onClick={handleSaveAll}
-            disabled={Object.values(saving).some(s => s) || !daysInMonth.some(d => canEdit(monthReports[d]))}
+            disabled={Object.values(saving).some(s => s) || !daysInMonth.some(d => canEdit(monthReports[d], d))}
             className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
           >
             <Save className="w-4 h-4 mr-2" />
@@ -440,13 +545,13 @@ export default function DataEntryPage() {
                     const rowClass = editable ? 'bg-white group even:bg-slate-50 odd:bg-white hover:bg-slate-200 focus-within:bg-blue-100 focus-within:hover:bg-blue-100 transition-colors' : 'bg-slate-50 text-slate-500';
 
                     return (
-                      <tr key={dateStr} className={`${rowClass} border-b border-slate-200`}>
-                        <td className={`px-3 py-2 font-medium border-r border-slate-200 sticky left-0 z-10 tabular-nums whitespace-nowrap text-slate-900 transition-colors shadow-[1px_0_0_0_#e2e8f0] ${editable ? 'bg-white group-even:bg-slate-50 group-hover:bg-slate-200 group-focus-within:bg-blue-100 group-focus-within:hover:bg-blue-100' : 'bg-slate-50'}`}>
+                      <tr key={dateStr} onClick={() => setDetailDate(dateStr)} className={`${rowClass} border-b border-slate-200 cursor-pointer ${detailDate === dateStr ? 'ring-2 ring-inset ring-blue-400 bg-blue-50/30' : ''}`}>
+                        <td className={`px-3 py-2 font-medium border-r border-slate-200 sticky left-0 z-10 tabular-nums whitespace-nowrap text-slate-900 transition-colors shadow-[1px_0_0_0_#e2e8f0] ${editable ? (detailDate === dateStr ? 'bg-blue-50/50' : 'bg-white group-even:bg-slate-50 group-hover:bg-slate-200 group-focus-within:bg-blue-100 group-focus-within:hover:bg-blue-100') : 'bg-slate-50'}`}>
                           {formatDisplayDate(dateStr)}
                         </td>
                         <td className="px-2 py-2 border-r border-slate-100 text-center">
-                          <div className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[10px] uppercase font-bold tracking-wide ${explicitlyLocked ? 'bg-slate-200 text-slate-600' : autoLocked ? 'bg-orange-100 text-orange-700' : 'bg-emerald-100 text-emerald-700'}`} title={autoLocked ? "Khóa tự động theo cài đặt hệ thống" : ""}>
-                            {explicitlyLocked ? 'Đã khóa' : autoLocked ? 'Khóa (Auto)' : 'Đang mở'}
+                          <div className={`mx-auto flex items-center justify-center w-7 h-7 rounded-sm transition-colors ${explicitlyLocked ? 'bg-slate-100 text-slate-500' : autoLocked ? 'bg-orange-50 text-orange-500' : 'bg-blue-50 text-blue-500'}`} title={explicitlyLocked ? "Đã khóa (Thủ công)" : autoLocked ? "Khóa tự động theo cài đặt hệ thống" : "Đang mở"}>
+                            {explicitlyLocked || autoLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
                           </div>
                         </td>
                         {INPATIENT_FIELDS.map((field) => (
@@ -515,6 +620,140 @@ export default function DataEntryPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Chi tiết báo cáo ng​ày (Shift Name & Infectious Diseases) */}
+      {!dataLoading && daysInMonth.length > 0 && detailDate && (
+        <Card className="flex-none mt-6 overflow-visible shadow-sm border-slate-200 bg-white">
+          <CardContent className="p-4 md:p-6 overflow-visible">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
+              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                 <AlertCircle className="w-5 h-5 text-blue-500" />
+                 Chi tiết báo cáo
+              </h3>
+              <div className="flex items-center gap-3 mt-4 md:mt-0">
+                <span className="text-sm font-medium text-slate-600">Chọn ngày:</span>
+                <Select value={detailDate} onValueChange={setDetailDate}>
+                  <SelectTrigger className="w-[150px] bg-white border-slate-300">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {daysInMonth.map(d => (
+                      <SelectItem key={d} value={d}>{formatDisplayDate(d)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            
+            {(() => {
+               const rep = monthReports[detailDate] || {};
+               const editable = canEdit(rep, detailDate);
+               const infectiousData = rep.infectiousData || [];
+               
+               return (
+                 <div className="space-y-6">
+                   <div className="flex flex-col md:flex-row md:items-end gap-4">
+                     <div className="flex-1 max-w-sm">
+                        <Label htmlFor="shiftName" className="text-slate-600 mb-2 block font-medium">Tên tua trực / Trưởng tua trực</Label>
+                        <Input 
+                          id="shiftName"
+                          value={rep.shiftName || ''}
+                          onChange={(e) => handleFieldChange(detailDate, 'shiftName', e.target.value)}
+                          onBlur={() => handleAutoSaveRow(detailDate)}
+                          disabled={!editable}
+                          placeholder="Nhập tên tuyến trực..."
+                          className="bg-white border-slate-300 focus:ring-blue-500 h-10 shadow-sm"
+                        />
+                     </div>
+                     {!editable && (
+                        <div className="text-sm text-slate-600 bg-slate-100 px-3 py-2 rounded-md flex items-center gap-2 h-10 border border-slate-200">
+                          <Lock className="w-4 h-4 text-slate-500"/> Chế độ xem (Đã khóa)
+                        </div>
+                     )}
+                   </div>
+                   
+                   <div className="pt-6 border-t border-slate-200">
+                     <div className="flex items-center justify-between mb-4">
+                       <h4 className="font-semibold text-slate-800 text-base">Số liệu Bệnh truyền nhiễm (Nếu có)</h4>
+                       {editable && (
+                         <Button variant="outline" size="sm" onClick={() => handleAddDisease(detailDate)} className="border-dashed border-blue-400 text-blue-600 hover:bg-blue-50 shadow-sm">
+                           <Plus className="w-4 h-4 mr-1.5"/> Báo cáo thêm Bệnh Truyền Nhiễm
+                         </Button>
+                       )}
+                     </div>
+                     
+                     {infectiousData.length === 0 ? (
+                       <div className="text-center py-10 text-slate-500 bg-slate-50/80 rounded-lg border border-dashed border-slate-300">
+                         Không có dữ liệu bệnh truyền nhiễm cho ngày này.
+                       </div>
+                     ) : (
+                       <div className="overflow-x-auto rounded-lg border border-slate-200">
+                         <table className="w-full text-sm text-left border-collapse tabular-nums min-w-[900px]">
+                           <thead className="text-[11px] text-slate-500 uppercase bg-slate-100 border-b border-slate-200">
+                             <tr>
+                               <th className="px-3 py-3 font-semibold w-[220px]">Tên bệnh truyền nhiễm</th>
+                               {INPATIENT_FIELDS.map(f => (
+                                 <th key={f.key} className="px-2 py-3 font-semibold text-center leading-tight">{f.label}</th>
+                               ))}
+                               {editable && <th className="px-2 py-3 text-center w-[50px]"></th>}
+                             </tr>
+                           </thead>
+                           <tbody className="divide-y divide-slate-100 bg-white">
+                             {infectiousData.map((disease, idx) => (
+                                <tr key={idx} className="hover:bg-slate-50 focus-within:bg-blue-50/50 transition-colors group">
+                                  <td className="px-3 py-2">
+                                    {editable ? (
+                                      <Select value={disease.diseaseName} onValueChange={(val) => {handleDiseaseChange(detailDate, idx, 'diseaseName', val); handleAutoSaveRow(detailDate);}}>
+                                        <SelectTrigger className="w-full h-9 bg-white border-slate-300 shadow-sm">
+                                          <SelectValue placeholder="Chọn loại bệnh..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {diseaseCatalog.map(d => (
+                                            <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    ) : (
+                                      <span className="font-medium text-slate-800 px-2">{disease.diseaseName || '—'}</span>
+                                    )}
+                                  </td>
+                                  {INPATIENT_FIELDS.map(f => (
+                                    <td key={f.key} className={`px-1 py-1 text-center align-middle ${f.computed ? 'bg-slate-50 font-semibold text-slate-700' : ''}`}>
+                                      {f.editable && editable ? (
+                                        <input
+                                          type="number" min="0" placeholder="0"
+                                          className="w-14 h-9 px-1 text-center bg-white border border-slate-300 rounded shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all tabular-nums text-slate-900 mx-auto block"
+                                          value={disease[f.key] ?? ''}
+                                          onChange={(e) => handleDiseaseChange(detailDate, idx, f.key, e.target.value)}
+                                          onBlur={() => handleAutoSaveRow(detailDate)}
+                                          onKeyDown={handleKeyDown}
+                                          onFocus={(e) => e.target.select()}
+                                        />
+                                      ) : (
+                                        <span className="block mx-auto min-w-[2rem] text-slate-600">{disease[f.key] ?? 0}</span>
+                                      )}
+                                    </td>
+                                  ))}
+                                  {editable && (
+                                    <td className="px-2 py-2 text-center align-middle">
+                                       <Button variant="ghost" size="sm" onClick={() => { handleRemoveDisease(detailDate, idx); setTimeout(() => handleAutoSaveRow(detailDate), 50); }} className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50 transition-colors">
+                                         <Trash2 className="w-4 h-4"/>
+                                       </Button>
+                                    </td>
+                                  )}
+                                </tr>
+                             ))}
+                           </tbody>
+                         </table>
+                       </div>
+                     )}
+                   </div>
+                 </div>
+               );
+            })()}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Tailwind Toast implementation (Basic) */}
       {toast && (

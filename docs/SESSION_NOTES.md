@@ -1,26 +1,52 @@
 # Session Notes
 
-## Session 2026-03-21
+## Session 2026-03-23
 
 ### What was done
-- **UI/UX Pro Max Upgrade**: Redesigned all major data tables across `DataEntryPage`, `DashboardPage`, `SummaryPage`, `LockManagementPage`, and `SettingsPage`. Implemented global Zebra striping (`even:bg-slate-50`), consistent `hover:bg-slate-200`, and `focus-within:bg-blue-100` for form elements inside tables.
-- **Form Controls Enhancement**: Updated default `Input` and `Select` Shadcn UI components to use `border-slate-300` and prominent `focus:ring-blue-500` outline, mimicking Google Firebase Console style.
-- **Excel Import Refinement**: Restructured the Excel import modal (`ImportDataModal.jsx`). Removed the unpredictable `BnCu` column from incoming templates, forcing users to declare an initial baseline `BnCu` value in the UI if no prior data exists, thus ensuring robust `computedColumns` calculations. 
-- **Data Locking Fix**: Investigated and resolved the issue where auto-lock was enabled but reports remained editable. Integrated the `shouldAutoLock` utility function with the auto-lock setting in `DataEntryPage.jsx` and `LockManagementPage.jsx`, adding a distinct "Khóa (Auto)" badge for clarity.
+- Fixed `aggregateRows` logic: `bnCu` = earliest day, `bnHienTai` = latest day (not summed)
+- Added `aggregateDeptSummaries` for correct grand totals
+- Brainstormed Summary Page redesign (3 options → Option A selected)
+- Created comprehensive CODEBASE.md documenting entire application
+- **Redesigned Summary Page** from single-table → 3-tab layout:
+  - Filter bar: Dept combobox + DatePicker + presets + auto-fetch
+  - Tab 1: KCBOverviewTable (dept rows + grand total + responsive compact)
+  - Tab 2: KCBDetailTable (daily rows + diff highlight + shift toggle)
+  - Tab 3: InfectiousPanel + DiseaseBlock (filter chips + radio mode + block per disease)
+- **Redesigned Lock Management Page** (round 1 + 2 refinements with ChatGPT feedback):
+  - Added `lockReportsBatch` / `unlockReportsBatch` to `reportService.js` (Firestore batch chunks 499/batch)
+  - Date range inputs + expanded presets (Hôm nay, Hôm qua, 7 ngày, Tháng này, Tháng trước)
+  - Radio "Tất cả khoa" / "Chọn cụ thể" with progressive disclosure (chip selectors grouped by facility)
+  - Contextual CTAs: only show when count > 0, with explanation text
+  - Confirm dialog with full details (date range + dept count + dept names)
+  - Nothing-to-do state when all reports are in desired state
+  - Collapsible auto-lock settings (badge BẬT) + collapsible detail section
+  - **Tree view detail**: replaced table → DateTreeNode (date header + dept children), all expanded by default
+- All builds pass, verified in browser
 
 ### Decisions made
-- We decided to use pure CSS (`focus-within` and `group-even` pseudo-classes) instead of complex React state for table row highlighing to maintain maximum performance on large datasets.
-- We opted to maintain date calculations strictly through explicit JavaScript `Date` parsing and formatting to avoid locale-specific timezone drift errors.
+- Keep compact tables on mobile (not cards) — hospital staff are used to tabular data
+- Separate KCB and BTN into distinct tabs (not toggle within same table)
+- Block-per-disease rendering for BTN (not grouped columns)
+- Auto-hide empty diseases, sort by total HT descending
+- No sticky columns in phase 1
+- Keep 2 CTA buttons (Lock + Unlock) side-by-side, NOT mode toggle — avoids stateful confusion
+- No Undo for lock/unlock — Firestore lacks batch rollback, too heavy for value
+- Lock page = action page only, audit = separate concern
+- Radio progressive disclosure to reduce chip overload (20 depts → "All" default)
+- Tree view replaces table for detail section — saves space, better scan
 
 ### Pending items
-- Continue monitoring user feedback on the new table visibility and styling adjustments.
+- Vietnamese locale for DatePicker (phase 2: react-day-picker)
+- Sticky column for dept name (phase 2)
+- User manual testing of data accuracy across tabs
 
 ### Key files modified
-- `src/pages/DataEntryPage.jsx`
-- `src/pages/DashboardPage.jsx`
-- `src/pages/SummaryPage.jsx`
-- `src/pages/SettingsPage.jsx`
-- `src/components/data-entry/ImportDataModal.jsx`
-- `src/components/ui/input.jsx`
-- `src/components/ui/select.jsx`
-- `src/pages/LockManagementPage.jsx`
+- `src/pages/SummaryPage.jsx` — full rewrite
+- `src/components/summary/KCBOverviewTable.jsx` — [NEW]
+- `src/components/summary/KCBDetailTable.jsx` — [NEW]
+- `src/components/summary/InfectiousPanel.jsx` — [NEW]
+- `src/components/summary/DiseaseBlock.jsx` — [NEW]
+- `src/utils/computedColumns.js` — added aggregateDeptSummaries
+- `src/services/reportService.js` — added lockReportsBatch, unlockReportsBatch, getReportsByDateRange
+- `src/pages/LockManagementPage.jsx` — full rewrite (2 rounds: initial redesign + UX refinements + tree view)
+- `CODEBASE.md` — comprehensive documentation + lock management updates
