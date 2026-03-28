@@ -1,5 +1,44 @@
 # Session Notes
 
+## Session 2026-03-28/29
+
+### What was done
+- **Death Report Module (`DeathReportTab.jsx`)** — [NEW]
+  - Accordion collapsible panel per day, shown when `tuVong > 0`
+  - Modal form with dynamic columns from `settings.deathReportColumns`
+  - Vertically-resizable text fields for clinical notes
+  - Custom Dialog confirmation for delete (replaced `window.confirm`)
+  - Validation: filled rows must match `tuVong` count
+  - Visual states: ⚪ normal, 🔴 incomplete, 🟢 complete
+  - Warning tooltip on incomplete death counts
+- **Data Persistence Fix**: Added `deathCases` to Firestore payload in all 3 save paths (`handleAutoSaveRow`, `handleSaveRow`, `handleSaveAll`)
+- **Settings — Death Report Column Config**
+  - Added column management table: STT, Label, Type, Fixed/Custom toggle (🔒/🔓), Required toggle (✱)
+  - 2-step inline delete confirm (✓/✕ instead of `window.confirm`)
+  - Default fixed columns: only Mã KCB and Họ tên; others are customizable
+- **InfectiousEntryTab.jsx** — [NEW] Extracted BTN entry from DataEntryPage
+- **Disease Catalog enhancements**: MOH-standard names, reorder, search modal
+- **Summary Page**: Disease filter chips, radio toggle, DiseaseBlock cards
+
+### Decisions made
+- **deathCases stored inside dailyReport document** — avoids sub-collection complexity, single Firestore read
+- **isFixed vs isCore**: `isFixed` = cannot delete column, `isCore` = must fill data. Independent toggles.
+- **2-step confirm pattern** over Dialog modal for settings delete — faster UX, no overlay
+
+### Pending items
+- Death List tab in Summary page (brainstormed, awaiting user answers on design options)
+
+### Key files modified
+- `src/components/data-entry/DeathReportTab.jsx` — [NEW] Death report entry
+- `src/components/data-entry/InfectiousEntryTab.jsx` — [NEW] BTN entry tab
+- `src/utils/validation.js` — [NEW] `isFilledRow()` for death case validation
+- `src/pages/DataEntryPage.jsx` — Added deathCases persistence + death tab integration
+- `src/pages/SettingsPage.jsx` — Column config table + toggles + 2-step delete
+- `src/pages/SummaryPage.jsx` — BTN tab with disease filter chips
+- `src/components/summary/InfectiousPanel.jsx` — Refactored with filter/radio/blocks
+- `src/components/summary/DiseaseBlock.jsx` — [NEW] Per-disease card
+- `src/services/diseaseCatalogService.js` — MOH name sync
+
 ## Session 2026-03-23 (Evening)
 
 ### What was done

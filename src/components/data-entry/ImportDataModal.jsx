@@ -13,6 +13,7 @@ export default function ImportDataModal({ isOpen, onClose, departments, onImport
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState(null);
   const [hasParseError, setHasParseError] = useState(false);
+  const [hasNegativeError, setHasNegativeError] = useState(false);
   const [initialBnCu, setInitialBnCu] = useState(0);
   const hasPreviousDBRecordRef = useRef(false);
   const dbRunningBnHienTaiRef = useRef(0);
@@ -25,6 +26,7 @@ export default function ImportDataModal({ isOpen, onClose, departments, onImport
       setPreviewData([]);
       setError(null);
       setHasParseError(false);
+      setHasNegativeError(false);
       setInitialBnCu(0);
     }
   }, [isOpen]);
@@ -175,12 +177,15 @@ export default function ImportDataModal({ isOpen, onClose, departments, onImport
           ...row,
           bnCu: computedBnCu,
           bnHienTai,
+          hasNegative: bnHienTai < 0,
           existsInDb,
           dbData,
-          status: existsInDb ? 'Đã tồn tại (Sẽ ghi đè)' : 'Thêm mới'
+          status: bnHienTai < 0 ? 'Lỗi: BN hiện tại âm' : (existsInDb ? 'Đã tồn tại (Sẽ ghi đè)' : 'Thêm mới')
         };
       });
 
+      const negativeCount = finalPreview.filter(r => r.hasNegative).length;
+      setHasNegativeError(negativeCount > 0);
       setPreviewData(finalPreview);
     } catch (err) {
       console.error(err);
@@ -268,8 +273,9 @@ export default function ImportDataModal({ isOpen, onClose, departments, onImport
                       const computedBnCu = idx === 0 ? (Number(newVal) || 0) : running;
                       const bnHienTai = computedBnCu + row.vaoVien + row.chuyenDen - row.chuyenDi - row.raVien - row.tuVong - row.chuyenVien;
                       running = bnHienTai;
-                      return { ...row, bnCu: computedBnCu, bnHienTai };
+                      return { ...row, bnCu: computedBnCu, bnHienTai, hasNegative: bnHienTai < 0, status: bnHienTai < 0 ? 'Lỗi: BN hiện tại âm' : (row.existsInDb ? 'Đã tồn tại (Sẽ ghi đè)' : 'Thêm mới') };
                     });
+                    setHasNegativeError(updated.some(r => r.hasNegative));
                     setPreviewData(updated);
                   }
                 }}
@@ -325,7 +331,15 @@ export default function ImportDataModal({ isOpen, onClose, departments, onImport
             <div className="border border-slate-200 rounded-lg overflow-hidden flex flex-col">
               <div className="p-3 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
                 <h3 className="font-semibold text-slate-700">Bản Xem Trước (Preview)</h3>
-                <span className="text-sm text-slate-500">Tìm thấy {previewData.length} dòng dữ liệu hợp lệ</span>
+                <div className="flex items-center gap-3">
+                  {hasNegativeError && (
+                    <span className="text-sm text-red-600 font-medium flex items-center gap-1">
+                      <AlertCircle className="w-4 h-4" />
+                      {previewData.filter(r => r.hasNegative).length} dòng có BN hiện tại âm
+                    </span>
+                  )}
+                  <span className="text-sm text-slate-500">Tìm thấy {previewData.length} dòng dữ liệu</span>
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
@@ -346,7 +360,7 @@ export default function ImportDataModal({ isOpen, onClose, departments, onImport
                   </thead>
                   <tbody>
                     {previewData.map((row) => (
-                      <tr key={row._index} className={`border-b border-slate-100 hover:bg-slate-50 ${!row.isValidDate ? 'bg-red-50 hover:bg-red-50' : (row.existsInDb ? 'bg-amber-50/30' : '')}`}>
+                      <tr key={row._index} className={`border-b border-slate-100 hover:bg-slate-50 ${!row.isValidDate ? 'bg-red-50 hover:bg-red-50' : row.hasNegative ? 'bg-red-50 hover:bg-red-100' : (row.existsInDb ? 'bg-amber-50/30' : '')}`}>
                         <td className="px-3 py-2 text-slate-400">#{row._index}</td>
                         <td className="px-3 py-2 font-medium">
                           {row.isValidDate ? format(new Date(row.date), 'dd/MM/yyyy') : <span className="text-red-600 font-bold bg-red-100 px-2 py-0.5 rounded">Lỗi: {row.rawDate}</span>}
@@ -358,8 +372,8 @@ export default function ImportDataModal({ isOpen, onClose, departments, onImport
                         <td className="px-3 py-2 text-right tabular-nums">{row.raVien}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{row.tuVong}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{row.chuyenVien}</td>
-                        <td className="px-3 py-2 text-right tabular-nums font-bold text-teal-600 bg-teal-50">{row.bnHienTai}</td>
-                        <td className={`px-3 py-2 text-xs font-medium whitespace-nowrap ${row.existsInDb ? 'text-amber-600' : 'text-emerald-600'}`}>
+                        <td className={`px-3 py-2 text-right tabular-nums font-bold ${row.hasNegative ? 'text-red-600 bg-red-100' : 'text-teal-600 bg-teal-50'}`}>{row.bnHienTai}{row.hasNegative && ' ⚠️'}</td>
+                        <td className={`px-3 py-2 text-xs font-medium whitespace-nowrap ${row.hasNegative ? 'text-red-600' : row.existsInDb ? 'text-amber-600' : 'text-emerald-600'}`}>
                           {row.status}
                         </td>
                       </tr>
@@ -378,11 +392,11 @@ export default function ImportDataModal({ isOpen, onClose, departments, onImport
           </Button>
           <Button 
             onClick={handleConfirm}
-            disabled={previewData.length === 0 || hasParseError || isProcessing}
+            disabled={previewData.length === 0 || hasParseError || hasNegativeError || isProcessing}
             isLoading={isProcessing}
-            className={hasParseError ? "opacity-50 cursor-not-allowed" : ""}
+            className={(hasParseError || hasNegativeError) ? "opacity-50 cursor-not-allowed" : ""}
           >
-            {hasParseError ? 'Sửa Lỗi File Excel Trước' : 'Xác Nhận Import'}
+            {hasParseError ? 'Sửa Lỗi File Excel Trước' : hasNegativeError ? 'Sửa Dữ Liệu Âm Trước' : 'Xác Nhận Import'}
           </Button>
         </div>
       </div>

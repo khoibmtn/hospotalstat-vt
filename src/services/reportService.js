@@ -13,8 +13,9 @@ import {
 import { db } from '../config/firebase';
 import { REPORT_STATUS, DEFAULT_INPATIENT_VALUES } from '../utils/constants';
 import { computeBnHienTai } from '../utils/computedColumns';
+import { isFilledRow } from '../utils/validation';
 import { getReportDocId, formatDate, getDaysInMonthUpTo } from '../utils/dateUtils';
-import { subDays } from 'date-fns';
+import { subDays, eachDayOfInterval, parse, format } from 'date-fns';
 
 /**
  * Get a single daily report
@@ -75,6 +76,13 @@ export async function saveReport(dateStr, departmentId, departmentName, facility
   const docId = getReportDocId(dateStr, departmentId);
   const bnHienTai = computeBnHienTai(data);
 
+  // Guard: prevent saving negative patient counts
+  if (bnHienTai < 0) {
+    throw new Error(`BN hiện tại âm (${bnHienTai}). Tổng xuất vượt quá tổng nhập. Vui lòng kiểm tra lại.`);
+  }
+
+  const validDeathCases = (data.deathCases || []).filter(isFilledRow);
+
   const reportData = {
     date: dateStr,
     departmentId,
@@ -82,6 +90,7 @@ export async function saveReport(dateStr, departmentId, departmentName, facility
     facilityId,
     reportedBy: userObj.nickname || '',
     ...data,
+    deathCases: validDeathCases,
     bnHienTai,
     updatedAt: serverTimestamp(),
   };
@@ -225,7 +234,7 @@ export async function unlockReport(reportId) {
   await setDoc(
     doc(db, 'dailyReports', reportId),
     {
-      status: REPORT_STATUS.OPEN,
+      status: REPORT_STATUS.UNLOCKED,
       lockedAt: null,
       lockedBy: null,
     },
@@ -280,29 +289,83 @@ export async function lockReportsBatch(startDate, endDate, departmentIds, locked
 /**
  * Unlock reports matching a date range and optional department IDs.
  */
-export async function unlockReportsBatch(startDate, endDate, departmentIds) {
+export async function unlockReportsBatch(startDate, endDate, departmentIds, departmentsList = []) {
   const reports = await getReportsByDateRange(startDate, endDate);
+  
   const toUpdate = reports.filter(
-    (r) => r.status === REPORT_STATUS.LOCKED && (departmentIds.length === 0 || departmentIds.includes(r.departmentId))
+    (r) => r.status !== REPORT_STATUS.UNLOCKED && (departmentIds.length === 0 || departmentIds.includes(r.departmentId))
   );
-  if (toUpdate.length === 0) return 0;
 
-  const chunks = [];
-  for (let i = 0; i < toUpdate.length; i += 499) {
-    chunks.push(toUpdate.slice(i, i + 499));
-  }
-  for (const chunk of chunks) {
-    const batch = writeBatch(db);
-    chunk.forEach((r) => {
-      batch.update(doc(db, 'dailyReports', r.id), {
-        status: REPORT_STATUS.OPEN,
-        lockedAt: null,
-        lockedBy: null,
-      });
+  const existingKeys = new Set(reports.map(r => `${r.date}_${r.departmentId}`));
+  
+  const start = parse(startDate, 'yyyy-MM-dd', new Date());
+  const end = parse(endDate, 'yyyy-MM-dd', new Date());
+  const days = eachDayOfInterval({ start, end }).map(d => format(d, 'yyyy-MM-dd'));
+  
+  const toCreate = [];
+  days.forEach(dateStr => {
+    departmentIds.forEach(deptId => {
+      const key = `${dateStr}_${deptId}`;
+      if (!existingKeys.has(key)) {
+         const deptName = departmentsList.find(d => d.id === deptId)?.name || '';
+         toCreate.push({
+           date: dateStr,
+           departmentId: deptId,
+           departmentName: deptName,
+           id: getReportDocId(dateStr, deptId)
+         });
+      }
     });
-    await batch.commit();
+  });
+
+  if (toUpdate.length === 0 && toCreate.length === 0) return 0;
+
+  let totalProcessed = 0;
+
+  if (toUpdate.length > 0) {
+    const updateChunks = [];
+    for (let i = 0; i < toUpdate.length; i += 499) {
+      updateChunks.push(toUpdate.slice(i, i + 499));
+    }
+    for (const chunk of updateChunks) {
+      const batch = writeBatch(db);
+      chunk.forEach((r) => {
+        batch.update(doc(db, 'dailyReports', r.id), {
+          status: REPORT_STATUS.UNLOCKED,
+          lockedAt: null,
+          lockedBy: null,
+        });
+      });
+      await batch.commit();
+    }
+    totalProcessed += toUpdate.length;
   }
-  return toUpdate.length;
+
+  if (toCreate.length > 0) {
+    const createChunks = [];
+    for (let i = 0; i < toCreate.length; i += 499) {
+      createChunks.push(toCreate.slice(i, i + 499));
+    }
+    for (const chunk of createChunks) {
+      const batch = writeBatch(db);
+      chunk.forEach((r) => {
+        batch.set(doc(db, 'dailyReports', r.id), {
+          date: r.date,
+          departmentId: r.departmentId,
+          departmentName: r.departmentName,
+          status: REPORT_STATUS.UNLOCKED,
+          lockedAt: null,
+          lockedBy: null,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      });
+      await batch.commit();
+    }
+    totalProcessed += toCreate.length;
+  }
+
+  return totalProcessed;
 }
 
 /**
@@ -449,6 +512,12 @@ export async function initializeDepartmentReportsForMonth(dateStr, department) {
  */
 export async function importReports(departmentId, departmentName, facilityId, records, userObj) {
   if (!records || records.length === 0) return 0;
+
+  // Guard: reject import if any record has negative bnHienTai
+  const negativeRows = records.filter(r => (Number(r.bnHienTai) || 0) < 0);
+  if (negativeRows.length > 0) {
+    throw new Error(`Import bị từ chối: ${negativeRows.length} dòng có BN hiện tại âm. Vui lòng sửa file Excel.`);
+  }
   
   // Sort records by date ascending to ensure we know the 'last' day
   const sortedRecords = [...records].sort((a, b) => a.date.localeCompare(b.date));

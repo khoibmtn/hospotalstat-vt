@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getReportsByDateRange, getReportsByDepartment } from '../services/reportService';
 import { getDepartments, getFacilities } from '../services/departmentService';
+import { getDiseaseCatalog } from '../services/diseaseCatalogService';
 import { aggregateRows } from '../utils/computedColumns';
 import { format, parse, subDays, startOfMonth } from 'date-fns';
 import { formatDisplayDate } from '../utils/dateUtils';
@@ -29,14 +30,16 @@ export default function SummaryPage() {
   const [rawReports, setRawReports] = useState([]);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
+  const [diseaseCatalog, setDiseaseCatalog] = useState([]);
   const fetchRef = useRef(0);
 
   // Load facilities & departments on mount
   useEffect(() => {
     async function loadConfig() {
-      const [facs, depts] = await Promise.all([getFacilities(), getDepartments()]);
+      const [facs, depts, catalog] = await Promise.all([getFacilities(), getDepartments(), getDiseaseCatalog()]);
       setFacilities(facs);
       setDepartments(depts);
+      setDiseaseCatalog(catalog);
     }
     loadConfig();
   }, []);
@@ -266,7 +269,7 @@ export default function SummaryPage() {
             📋 <span className="hidden sm:inline">Chi tiết</span> KCB
           </TabsTrigger>
           <TabsTrigger value="btn" className="text-xs md:text-sm gap-1 data-[state=active]:bg-amber-50 data-[state=active]:text-amber-700">
-            🦠 Bệnh TN
+            🦠 Bệnh truyền nhiễm
           </TabsTrigger>
         </TabsList>
 
@@ -275,6 +278,7 @@ export default function SummaryPage() {
             <TabsContent value="overview" className="m-0 flex-1 overflow-hidden flex flex-col data-[state=inactive]:hidden">
               <KCBOverviewTable
                 data={overviewData}
+                rawReports={rawReports}
                 loading={loading}
                 startDate={startDate}
                 endDate={endDate}
@@ -297,6 +301,7 @@ export default function SummaryPage() {
                 reports={rawReports}
                 loading={loading}
                 selectedDept={selectedDept}
+                diseaseCatalog={diseaseCatalog}
               />
             </TabsContent>
           </CardContent>

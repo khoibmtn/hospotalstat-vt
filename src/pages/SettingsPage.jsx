@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { getSettings, updateSettings } from '../services/settingsService';
 import { getFacilities, getDepartments, saveFacility, deleteFacility, saveDepartment, deleteDepartment } from '../services/departmentService';
-import { getDiseaseCatalog, addDisease, updateDiseaseName, deleteDisease, isDiseaseUsedInReports } from '../services/diseaseCatalogService';
+import { getDiseaseCatalog, addDisease, updateDiseaseName, updateDiseaseColor, updateDiseaseGroup, swapDiseaseOrder, deleteDisease, isDiseaseUsedInReports } from '../services/diseaseCatalogService';
 import { getAllUsers, updateUser, deleteUser as deleteUserService, resetUserPassword } from '../services/authService';
 import { importReports } from '../services/reportService';
 import { ROLE_LABELS, ROLES, POSITIONS, TITLES } from '../utils/constants';
@@ -16,10 +16,10 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 
-import { Settings, Building2, Layers, Users, Plus, Trash2, Edit2, ShieldAlert, KeyRound, Loader2, Save, X, ShieldCheck, Upload, ListChecks, Check, Lock, Unlock } from 'lucide-react';
+import { Settings, Building2, Layers, Users, Plus, Trash2, Edit2, ShieldAlert, KeyRound, Loader2, Save, X, ShieldCheck, Upload, ListChecks, Check, Lock, Unlock, Palette, ArrowUp, ArrowDown, Asterisk } from 'lucide-react';
 import ImportDataModal from '../components/data-entry/ImportDataModal';
 
-import { seedDiseaseCatalog } from '../utils/seedDiseases';
+import { seedDiseaseCatalog, syncDiseaseCatalog } from '../utils/seedDiseases';
 
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -38,6 +38,38 @@ export default function SettingsPage() {
   const [editingDiseaseId, setEditingDiseaseId] = useState(null);
   const [editingDiseaseName, setEditingDiseaseName] = useState('');
   const [diseaseUsageCache, setDiseaseUsageCache] = useState({});
+  const [newDiseaseColor, setNewDiseaseColor] = useState('#ef4444');
+  const [newDiseaseGroup, setNewDiseaseGroup] = useState('B');
+  const [colorPickerOpen, setColorPickerOpen] = useState(null);
+  const [newDiseaseColorOpen, setNewDiseaseColorOpen] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  // Death Report Columns state
+  const DEFAULT_DEATH_REPORT_COLUMNS = [
+    { id: 'maKCB', label: 'Mã KCB', type: 'text', isFixed: true, isCore: true },
+    { id: 'hoTen', label: 'Họ tên', type: 'text', isFixed: true, isCore: true },
+    { id: 'namSinh', label: 'Năm sinh', type: 'text', isFixed: false, isCore: true },
+    { id: 'timeVaoVien', label: 'Ngày giờ vào viện', type: 'datetime', isFixed: false, isCore: true },
+    { id: 'timeTuVong', label: 'Ngày giờ tử vong', type: 'datetime', isFixed: false, isCore: true },
+    { id: 'chanDoanVao', label: 'CĐ vào viện', type: 'text', isFixed: false, isCore: true },
+    { id: 'chanDoanTuVong', label: 'CĐ tử vong', type: 'text', isFixed: false, isCore: true },
+    { id: 'dienBien', label: 'Diễn biến lâm sàng', type: 'text', isFixed: false, isCore: false },
+    { id: 'tomTatCLS', label: 'Tóm tắt CLS', type: 'text', isFixed: false, isCore: false },
+    { id: 'ghiChu', label: 'Ghi chú', type: 'text', isFixed: false, isCore: false },
+  ];
+  const [deathColumns, setDeathColumns] = useState([]);
+  const [newColLabel, setNewColLabel] = useState('');
+  const [newColType, setNewColType] = useState('text');
+  const [editingColId, setEditingColId] = useState(null);
+  const [editingColLabel, setEditingColLabel] = useState('');
+  const [confirmDeleteColId, setConfirmDeleteColId] = useState(null);
+
+  const PRESET_COLORS = [
+    '#ef4444', '#f97316', '#f59e0b', '#eab308',
+    '#84cc16', '#22c55e', '#14b8a6', '#06b6d4',
+    '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7',
+    '#ec4899', '#f43f5e', '#78716c', '#6b7280',
+  ];
 
   function showToast(msg, type = 'success') {
     setToast({ msg, type });
@@ -52,6 +84,7 @@ export default function SettingsPage() {
         getAllUsers(),
       ]);
       setSettingsData(sets);
+      setDeathColumns(sets.deathReportColumns || DEFAULT_DEATH_REPORT_COLUMNS);
       setFacilities(facs);
       setDepts(depts);
       setUsers(usrs);
@@ -73,6 +106,61 @@ export default function SettingsPage() {
     await updateSettings({ [key]: value });
     setSettingsData((prev) => ({ ...prev, [key]: value }));
     showToast('Đã cập nhật cài đặt');
+  }
+
+  async function handleSaveDeathColumns(newCols) {
+    setDeathColumns(newCols);
+    await handleSettingsChange('deathReportColumns', newCols);
+  }
+
+  function handleAddDeathCol() {
+    if (!newColLabel.trim()) return;
+    const newCol = {
+      id: 'custom_' + Date.now(),
+      label: newColLabel.trim(),
+      type: newColType,
+      isFixed: false,
+      isCore: false
+    };
+    const newCols = [...deathColumns, newCol];
+    handleSaveDeathColumns(newCols);
+    setNewColLabel('');
+    setNewColType('text');
+  }
+
+  function handleDeleteDeathCol(id) {
+    const newCols = deathColumns.filter((c) => c.id !== id);
+    handleSaveDeathColumns(newCols);
+    setConfirmDeleteColId(null);
+  }
+
+  function handleMoveDeathCol(index, direction) {
+    if (direction === 'up' && index === 0) return;
+    if (direction === 'down' && index === deathColumns.length - 1) return;
+    const newCols = [...deathColumns];
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    [newCols[index], newCols[targetIndex]] = [newCols[targetIndex], newCols[index]];
+    handleSaveDeathColumns(newCols);
+  }
+
+  function handleSaveEditDeathCol(id) {
+    if (!editingColLabel.trim()) {
+      setEditingColId(null);
+      return;
+    }
+    const newCols = deathColumns.map((c) => c.id === id ? { ...c, label: editingColLabel.trim() } : c);
+    handleSaveDeathColumns(newCols);
+    setEditingColId(null);
+  }
+
+  function handleToggleRequired(id) {
+    const newCols = deathColumns.map((c) => c.id === id ? { ...c, isCore: !c.isCore } : c);
+    handleSaveDeathColumns(newCols);
+  }
+
+  function handleToggleFixed(id) {
+    const newCols = deathColumns.map((c) => c.id === id ? { ...c, isFixed: !c.isFixed } : c);
+    handleSaveDeathColumns(newCols);
   }
 
   // ---- Facility CRUD ----
@@ -243,10 +331,26 @@ export default function SettingsPage() {
   // ---- Disease Catalog CRUD ----
   async function handleAddDisease() {
     if (!newDiseaseName.trim()) return;
-    const id = await addDisease(newDiseaseName);
-    setDiseases((prev) => [...prev, { id, name: newDiseaseName.trim(), order: prev.length + 1 }]);
+    const id = await addDisease(newDiseaseName, newDiseaseColor, newDiseaseGroup);
+    setDiseases((prev) => [...prev, { id, name: newDiseaseName.trim(), order: prev.length + 1, color: newDiseaseColor, group: newDiseaseGroup }]);
     setNewDiseaseName('');
+    setNewDiseaseColor('#ef4444');
+    setNewDiseaseGroup('B');
     showToast('Đã thêm bệnh truyền nhiễm');
+  }
+
+  async function handleSyncCatalog() {
+    setSyncing(true);
+    try {
+      const result = await syncDiseaseCatalog();
+      const catalog = await getDiseaseCatalog();
+      setDiseases(catalog);
+      showToast(`Đồng bộ xong: ${result.added} bệnh mới, ${result.updated} đã cập nhật`);
+    } catch (e) {
+      showToast('Lỗi đồng bộ: ' + e.message, 'error');
+    } finally {
+      setSyncing(false);
+    }
   }
 
   async function handleDeleteDisease(disease) {
@@ -386,6 +490,140 @@ export default function SettingsPage() {
                     </div>
                   </>
                 )}
+                
+                {/* --- Death Report Columns Config --- */}
+                <div className="h-px w-full bg-slate-100 my-6"></div>
+                
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-800">Danh mục cột báo cáo bệnh nhân tử vong</h3>
+                    <p className="text-sm text-slate-500">Cấu hình các trường dữ liệu cần nhập khi có ca tử vong. Cột hệ thống cố định không thể xóa.</p>
+                  </div>
+                  
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg overflow-hidden">
+                    <table className="w-full text-sm text-left border-collapse">
+                      <thead className="bg-slate-100/50 text-slate-600 border-b border-slate-200">
+                        <tr>
+                          <th className="px-4 py-3 font-semibold w-16 text-center">STT</th>
+                          <th className="px-4 py-3 font-semibold">Tên cột (Label)</th>
+                          <th className="px-4 py-3 font-semibold w-32">Kiểu dữ liệu</th>
+                          <th className="px-4 py-3 font-semibold w-24 text-center">Loại cột</th>
+                          <th className="px-4 py-3 font-semibold w-24 text-center">Bắt buộc</th>
+                          <th className="px-4 py-3 font-semibold w-32 text-right">Thao tác</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {deathColumns.map((col, index) => (
+                          <tr key={col.id} className="hover:bg-slate-50/50 group">
+                            <td className="px-4 py-3 text-center text-slate-500 font-medium">{index + 1}</td>
+                            <td className="px-4 py-3">
+                              {editingColId === col.id ? (
+                                <div className="flex items-center gap-2 max-w-sm">
+                                  <Input
+                                    value={editingColLabel}
+                                    onChange={(e) => setEditingColLabel(e.target.value)}
+                                    onKeyDown={(e) => { 
+                                      if (e.key === 'Enter') handleSaveEditDeathCol(col.id); 
+                                      if (e.key === 'Escape') setEditingColId(null); 
+                                    }}
+                                    autoFocus
+                                    className="h-8 text-sm focus-visible:ring-blue-500"
+                                  />
+                                  <Button variant="ghost" size="icon" className="h-8 w-8 text-emerald-600 hover:bg-emerald-50 shrink-0" onClick={() => handleSaveEditDeathCol(col.id)}>
+                                    <Check className="w-4 h-4" />
+                                  </Button>
+                                  <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:bg-slate-100 shrink-0" onClick={() => setEditingColId(null)}>
+                                    <X className="w-4 h-4" />
+                                  </Button>
+                                </div>
+                              ) : (
+                                <span className="font-medium text-slate-900">{col.label}</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3">
+                              <Badge variant="secondary" className="bg-slate-100 text-slate-600 font-normal">
+                                {col.type === 'text' ? 'Văn bản' : 'Ngày giờ'}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleFixed(col.id)}
+                                className={`inline-flex items-center justify-center w-8 h-8 rounded-md transition-colors cursor-pointer ${col.isFixed ? 'bg-blue-100 text-blue-600 hover:bg-blue-200' : 'bg-amber-100 text-amber-600 hover:bg-amber-200'}`}
+                                title={col.isFixed ? 'Cố định — click để chuyển tùy chỉnh' : 'Tùy chỉnh — click để chuyển cố định'}
+                              >
+                                {col.isFixed ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                              </button>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleRequired(col.id)}
+                                className={`inline-flex items-center justify-center w-8 h-8 rounded-md transition-colors ${col.isCore ? 'bg-red-100 text-red-600 hover:bg-red-200' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
+                                title={col.isCore ? 'Bắt buộc nhập — click để bỏ' : 'Không bắt buộc — click để đặt bắt buộc'}
+                              >
+                                <Asterisk className="w-4 h-4" />
+                              </button>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-slate-900 hover:bg-slate-100" onClick={() => handleMoveDeathCol(index, 'up')} disabled={index === 0}>
+                                  <ArrowUp className="w-4 h-4" />
+                                </Button>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-slate-900 hover:bg-slate-100" onClick={() => handleMoveDeathCol(index, 'down')} disabled={index === deathColumns.length - 1}>
+                                  <ArrowDown className="w-4 h-4" />
+                                </Button>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50 flex-shrink-0" onClick={() => { setEditingColId(col.id); setEditingColLabel(col.label); }}>
+                                  <Edit2 className="w-4 h-4" />
+                                </Button>
+                                {!col.isFixed && (
+                                  confirmDeleteColId === col.id ? (
+                                    <>
+                                      <Button variant="ghost" size="icon" className="h-8 w-8 text-red-700 hover:text-white hover:bg-red-600 flex-shrink-0" title="Xác nhận xóa" onClick={() => handleDeleteDeathCol(col.id)}>
+                                        <Check className="w-4 h-4" />
+                                      </Button>
+                                      <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-slate-900 hover:bg-slate-100 flex-shrink-0" title="Hủy" onClick={() => setConfirmDeleteColId(null)}>
+                                        <X className="w-4 h-4" />
+                                      </Button>
+                                    </>
+                                  ) : (
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50 flex-shrink-0" onClick={() => setConfirmDeleteColId(col.id)}>
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  )
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-3 pt-2 max-w-2xl">
+                    <Input
+                      placeholder="Tên cột tùy chỉnh mới..."
+                      value={newColLabel}
+                      onChange={(e) => setNewColLabel(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleAddDeathCol()}
+                      className="flex-1 focus-visible:ring-blue-500"
+                    />
+                    <Select value={newColType} onValueChange={setNewColType}>
+                      <SelectTrigger className="w-full sm:w-[150px] bg-white">
+                        <SelectValue placeholder="Kiểu dữ liệu" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="text">Văn bản</SelectItem>
+                        <SelectItem value="datetime">Ngày giờ</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button onClick={handleAddDeathCol} className="bg-slate-800 hover:bg-slate-900 text-white shrink-0 sm:w-auto w-full group">
+                      <Plus className="w-4 h-4 mr-2 group-hover:scale-110 transition-transform" />
+                      Thêm cột
+                    </Button>
+                  </div>
+                </div>
+
               </CardContent>
             </Card>
           </TabsContent>
@@ -746,17 +984,54 @@ export default function SettingsPage() {
                   <CardTitle className="text-lg font-semibold text-slate-800">Danh mục Bệnh truyền nhiễm</CardTitle>
                   <CardDescription>Quản lý danh sách bệnh truyền nhiễm dùng trong nhập liệu hàng ngày</CardDescription>
                 </div>
+                <Button onClick={handleSyncCatalog} disabled={syncing} variant="outline" size="sm" className="text-blue-600 border-blue-200 hover:bg-blue-50">
+                  {syncing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ListChecks className="w-4 h-4 mr-2" />}
+                  Đồng bộ danh mục BYT
+                </Button>
               </CardHeader>
 
               <div className="p-4 bg-slate-50 border-b border-slate-100">
-                <div className="flex gap-3 max-w-md">
+                <div className="flex gap-3 items-center flex-wrap">
                   <Input
                     placeholder="Tên bệnh truyền nhiễm mới..."
                     value={newDiseaseName}
                     onChange={(e) => setNewDiseaseName(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleAddDisease()}
-                    className="focus-visible:ring-blue-500"
+                    className="focus-visible:ring-blue-500 max-w-xs"
                   />
+                  <Select value={newDiseaseGroup} onValueChange={setNewDiseaseGroup}>
+                    <SelectTrigger className="w-[110px] h-9 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="A"><span className="font-semibold text-red-600">Nhóm A</span></SelectItem>
+                      <SelectItem value="B"><span className="font-semibold text-blue-600">Nhóm B</span></SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <div className="relative shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setNewDiseaseColorOpen(!newDiseaseColorOpen)}
+                      className="w-8 h-8 rounded-md border-2 border-slate-300 shadow-inner hover:ring-2 hover:ring-blue-300 transition-all"
+                      style={{ backgroundColor: newDiseaseColor }}
+                      title="Chọn màu"
+                    />
+                    {newDiseaseColorOpen && (
+                      <div className="absolute top-10 left-0 z-50 bg-white rounded-lg shadow-xl border border-slate-200 p-2 w-[152px]">
+                        <div className="grid grid-cols-4 gap-1.5">
+                          {PRESET_COLORS.map(c => (
+                            <button
+                              key={c}
+                              type="button"
+                              onClick={() => { setNewDiseaseColor(c); setNewDiseaseColorOpen(false); }}
+                              className={`w-7 h-7 rounded-md border-2 transition-all hover:scale-110 ${newDiseaseColor === c ? 'border-slate-800 ring-2 ring-offset-1 ring-blue-400' : 'border-slate-200'}`}
+                              style={{ backgroundColor: c }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   <Button onClick={handleAddDisease} className="bg-blue-600 hover:bg-blue-700 text-white shrink-0">
                     <Plus className="w-4 h-4 mr-2" />
                     Thêm bệnh
@@ -769,8 +1044,11 @@ export default function SettingsPage() {
                   <table className="w-full text-sm text-left border-collapse">
                     <thead className="text-xs text-slate-600 uppercase bg-slate-50 border-b border-slate-200">
                       <tr>
-                        <th className="px-6 py-4 font-semibold w-12">#</th>
+                        <th className="px-3 py-4 font-semibold w-10 text-center">STT</th>
+                        <th className="px-2 py-4 font-semibold w-16 text-center">Thứ tự</th>
                         <th className="px-6 py-4 font-semibold">Tên bệnh</th>
+                        <th className="px-4 py-4 font-semibold text-center w-28">Nhóm</th>
+                        <th className="px-4 py-4 font-semibold text-center w-24">Màu</th>
                         <th className="px-6 py-4 font-semibold text-center w-40">Trạng thái</th>
                         <th className="px-6 py-4 font-semibold text-right w-40">Thao tác</th>
                       </tr>
@@ -778,12 +1056,50 @@ export default function SettingsPage() {
                     <tbody className="divide-y divide-slate-100">
                       {diseases.length === 0 ? (
                         <tr>
-                          <td colSpan={4} className="text-center py-8 text-slate-500 bg-slate-50/50">Chưa có bệnh nào trong danh mục</td>
+                          <td colSpan={7} className="text-center py-8 text-slate-500 bg-slate-50/50">Chưa có bệnh nào trong danh mục</td>
                         </tr>
                       ) : (
                         diseases.map((d, idx) => (
                           <tr key={d.id} className="group bg-white even:bg-slate-50 border-b border-slate-200 hover:bg-slate-200 transition-colors">
-                            <td className="px-6 py-3 text-slate-500 font-mono text-xs">{idx + 1}</td>
+                            <td className="px-3 py-3 text-slate-500 font-mono text-xs text-center">{idx + 1}</td>
+                            <td className="px-2 py-3 text-center">
+                              <div className="flex items-center justify-center gap-0.5">
+                                <Button
+                                  variant="ghost" size="icon"
+                                  className="h-6 w-6 text-slate-400 hover:text-blue-600 hover:bg-blue-50 disabled:opacity-30"
+                                  disabled={idx === 0}
+                                  onClick={async () => {
+                                    const prev = diseases[idx - 1];
+                                    await swapDiseaseOrder(d.id, d.order, prev.id, prev.order);
+                                    setDiseases(old => {
+                                      const arr = [...old];
+                                      [arr[idx], arr[idx - 1]] = [arr[idx - 1], arr[idx]];
+                                      return arr.map((item, i) => ({ ...item, order: i + 1 }));
+                                    });
+                                  }}
+                                  title="Di chuyển lên"
+                                >
+                                  <ArrowUp className="w-3.5 h-3.5" />
+                                </Button>
+                                <Button
+                                  variant="ghost" size="icon"
+                                  className="h-6 w-6 text-slate-400 hover:text-blue-600 hover:bg-blue-50 disabled:opacity-30"
+                                  disabled={idx === diseases.length - 1}
+                                  onClick={async () => {
+                                    const next = diseases[idx + 1];
+                                    await swapDiseaseOrder(d.id, d.order, next.id, next.order);
+                                    setDiseases(old => {
+                                      const arr = [...old];
+                                      [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
+                                      return arr.map((item, i) => ({ ...item, order: i + 1 }));
+                                    });
+                                  }}
+                                  title="Di chuyển xuống"
+                                >
+                                  <ArrowDown className="w-3.5 h-3.5" />
+                                </Button>
+                              </div>
+                            </td>
                             <td className="px-6 py-3">
                               {editingDiseaseId === d.id ? (
                                 <div className="flex items-center gap-2 max-w-sm">
@@ -804,6 +1120,53 @@ export default function SettingsPage() {
                               ) : (
                                 <span className="font-medium text-slate-900 cursor-pointer hover:text-blue-600" onDoubleClick={() => handleStartEditDisease(d)}>{d.name}</span>
                               )}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <Select
+                                value={d.group || 'B'}
+                                onValueChange={async (val) => {
+                                  await updateDiseaseGroup(d.id, val);
+                                  setDiseases(prev => prev.map(di => di.id === d.id ? { ...di, group: val } : di));
+                                }}
+                              >
+                                <SelectTrigger className={`w-[90px] h-8 text-xs mx-auto font-semibold ${(d.group || 'B') === 'A' ? 'border-red-300 text-red-700 bg-red-50' : 'border-blue-300 text-blue-700 bg-blue-50'}`}>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="A"><span className="font-semibold text-red-600">Nhóm A</span></SelectItem>
+                                  <SelectItem value="B"><span className="font-semibold text-blue-600">Nhóm B</span></SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <div className="relative inline-block">
+                                <button
+                                  type="button"
+                                  onClick={() => setColorPickerOpen(colorPickerOpen === d.id ? null : d.id)}
+                                  className="w-7 h-7 rounded-md border-2 border-slate-300 shadow-inner mx-auto hover:ring-2 hover:ring-blue-300 transition-all"
+                                  style={{ backgroundColor: d.color || '#6b7280' }}
+                                  title="Bấm để đổi màu"
+                                />
+                                {colorPickerOpen === d.id && (
+                                  <div className="absolute top-9 left-1/2 -translate-x-1/2 z-50 bg-white rounded-lg shadow-xl border border-slate-200 p-2 w-[152px]">
+                                    <div className="grid grid-cols-4 gap-1.5">
+                                      {PRESET_COLORS.map(c => (
+                                        <button
+                                          key={c}
+                                          type="button"
+                                          onClick={async () => {
+                                            await updateDiseaseColor(d.id, c);
+                                            setDiseases((prev) => prev.map((di) => di.id === d.id ? { ...di, color: c } : di));
+                                            setColorPickerOpen(null);
+                                          }}
+                                          className={`w-7 h-7 rounded-md border-2 transition-all hover:scale-110 ${(d.color || '#6b7280') === c ? 'border-slate-800 ring-2 ring-offset-1 ring-blue-400' : 'border-slate-200'}`}
+                                          style={{ backgroundColor: c }}
+                                        />
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             </td>
                             <td className="px-6 py-3 text-center">
                               {diseaseUsageCache[d.id] ? (

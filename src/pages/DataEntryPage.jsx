@@ -5,6 +5,7 @@ import { getDepartments, seedInitialData } from '../services/departmentService';
 import { getSettings } from '../services/settingsService';
 import { canAccessDepartment } from '../services/authService';
 import { computeBnHienTai } from '../utils/computedColumns';
+import { validateReportRow, isFilledRow } from '../utils/validation';
 import { getCurrentReportDate, formatDisplayDate, getDaysInMonthUpTo, shouldAutoLock } from '../utils/dateUtils';
 import { INPATIENT_FIELDS, REPORT_STATUS, ROLES } from '../utils/constants';
 import { getDiseaseCatalog } from '../services/diseaseCatalogService';
@@ -13,9 +14,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Loader2, Save, FileText, CheckCircle2, AlertCircle, Lock, Unlock, Plus, Trash2 } from 'lucide-react';
+import InfectiousEntryTab from '@/components/data-entry/InfectiousEntryTab';
+import DeathReportTab from '@/components/data-entry/DeathReportTab';
 
 export default function DataEntryPage() {
   const { user } = useAuth();
@@ -41,6 +45,12 @@ export default function DataEntryPage() {
   const showToast = useCallback((msg, type = 'success') => {
     setToast({ msg, type });
   }, []);
+
+  const getFilledDeathRowsCount = useCallback((dateStr) => {
+    const report = monthReports[dateStr];
+    if (!report || !report.deathCases) return 0;
+    return report.deathCases.filter(isFilledRow).length;
+  }, [monthReports]);
 
   // 1. Initial Load: settings, date, accessible departments
   useEffect(() => {
@@ -167,7 +177,7 @@ export default function DataEntryPage() {
     });
   };
 
-  const handleDiseaseChange = (date, idx, field, value) => {
+  const handleDiseaseChange = (date, diseaseName, field, value) => {
     let finalValue = value;
     if (field !== 'diseaseName') {
         finalValue = value === '' ? 0 : parseInt(value, 10) || 0;
@@ -177,6 +187,16 @@ export default function DataEntryPage() {
       const newState = { ...prev };
       const prevReport = newState[date] || {};
       const newInfectious = [...(prevReport.infectiousData || [])];
+      
+      let idx = newInfectious.findIndex(d => d.diseaseName === diseaseName);
+      if (idx === -1) {
+          newInfectious.push({
+             diseaseName: diseaseName,
+             bnCu: 0, vaoVien: 0, chuyenDen: 0, chuyenDi: 0,
+             raVien: 0, tuVong: 0, chuyenVien: 0, bnHienTai: 0
+          });
+          idx = newInfectious.length - 1;
+      }
       
       const updatedDisease = { ...newInfectious[idx], [field]: finalValue };
       if (field !== 'diseaseName') {
@@ -268,6 +288,10 @@ export default function DataEntryPage() {
     const report = monthReports[date];
     if (!report || !canEdit(report, date)) return;
 
+    // Block save if BN hiện tại is negative
+    const { valid } = validateReportRow(report);
+    if (!valid) return;
+
     const dept = departments.find((d) => d.id === selectedDeptId);
     if (!dept) return;
 
@@ -287,6 +311,7 @@ export default function DataEntryPage() {
           raVien: report.raVien || 0,
           tuVong: report.tuVong || 0,
           chuyenVien: report.chuyenVien || 0,
+          deathCases: (report.deathCases || []).filter(c => c && Object.keys(c).length > 0),
         },
         user
       );
@@ -299,6 +324,13 @@ export default function DataEntryPage() {
   const handleSaveRow = async (date) => {
     const report = monthReports[date];
     if (!report) return;
+
+    // Block save if BN hiện tại is negative
+    const { valid, errors } = validateReportRow(report);
+    if (!valid) {
+      showToast(errors[0], 'error');
+      return;
+    }
 
     const dept = departments.find((d) => d.id === selectedDeptId);
     if (!dept) return;
@@ -318,6 +350,7 @@ export default function DataEntryPage() {
           raVien: report.raVien || 0,
           tuVong: report.tuVong || 0,
           chuyenVien: report.chuyenVien || 0,
+          deathCases: (report.deathCases || []).filter(c => c && Object.keys(c).length > 0),
         },
         user
       );
@@ -349,6 +382,16 @@ export default function DataEntryPage() {
       return canEdit(report, dateStr);
     });
 
+    // Check for invalid rows  
+    const invalidDays = editableDays.filter(dateStr => {
+      const report = monthReports[dateStr];
+      return report && !validateReportRow(report).valid;
+    });
+    if (invalidDays.length > 0) {
+      showToast(`Có ${invalidDays.length} ngày có BN hiện tại âm. Vui lòng sửa trước khi lưu.`, 'error');
+      return;
+    }
+
     if (editableDays.length === 0) {
       showToast('Không có dữ liệu nào có thể lưu.', 'warning');
       return;
@@ -378,6 +421,7 @@ export default function DataEntryPage() {
             raVien: report.raVien || 0,
             tuVong: report.tuVong || 0,
             chuyenVien: report.chuyenVien || 0,
+            deathCases: (report.deathCases || []).filter(c => c && Object.keys(c).length > 0),
           },
           user
         );
@@ -407,7 +451,8 @@ export default function DataEntryPage() {
   function canEdit(report, dateStr) {
     if (!report) return false;
     const explicitlyLocked = report.status === REPORT_STATUS.LOCKED;
-    const autoLocked = settings?.autoLockEnabled && shouldAutoLock(dateStr, settings.autoLockHour);
+    const explicitlyUnlocked = report.status === REPORT_STATUS.UNLOCKED;
+    const autoLocked = settings?.autoLockEnabled && shouldAutoLock(dateStr, settings.autoLockHour) && !explicitlyUnlocked;
     if (explicitlyLocked || autoLocked) return false;
     
     if (user.role === ROLES.ADMIN) return true;
@@ -513,20 +558,31 @@ export default function DataEntryPage() {
         </div>
       </div>
 
-      <Card className="flex-1 overflow-hidden shadow-sm border-slate-200 flex flex-col bg-white">
-        <CardContent className="p-0 flex-1 overflow-hidden flex flex-col h-full relative">
-          {dataLoading ? (
-            <div className="flex flex-col items-center justify-center p-12 text-slate-500 h-full">
-               <Loader2 className="h-8 w-8 animate-spin mb-4 text-blue-500" />
-               <p className="font-medium">Đang tải số liệu tháng...</p>
-            </div>
-          ) : (
-            <div className="flex-1 overflow-auto bg-white rounded-b-xl border-t border-slate-100">
+      <Tabs defaultValue="kcb" className="flex-1 flex flex-col overflow-hidden">
+        <div className="bg-white border-b border-slate-200 px-4 pt-2">
+          <TabsList className="h-10 bg-slate-100 p-1">
+            <TabsTrigger value="kcb" className="text-sm px-4 data-[state=active]:bg-blue-600 data-[state=active]:text-white">📋 Số liệu KCB</TabsTrigger>
+            <TabsTrigger value="btn" className="text-sm px-4 data-[state=active]:bg-teal-600 data-[state=active]:text-white">🦠 Bệnh truyền nhiễm</TabsTrigger>
+            <TabsTrigger value="tv" className="text-sm px-4 data-[state=active]:bg-purple-600 data-[state=active]:text-white">💀 Bệnh nhân tử vong</TabsTrigger>
+          </TabsList>
+        </div>
+
+        <TabsContent value="kcb" className="flex-1 overflow-hidden mt-0">
+          <Card className="h-full overflow-hidden shadow-sm border-slate-200 flex flex-col bg-white border-t-0 rounded-t-none">
+            <CardContent className="p-0 flex-1 overflow-hidden flex flex-col h-full relative">
+              {dataLoading ? (
+                <div className="flex flex-col items-center justify-center p-12 text-slate-500 h-full">
+                   <Loader2 className="h-8 w-8 animate-spin mb-4 text-blue-500" />
+                   <p className="font-medium">Đang tải số liệu tháng...</p>
+                </div>
+              ) : (
+                <div className="flex-1 overflow-auto bg-white rounded-b-xl border-t border-slate-100">
               <table className="w-full text-sm text-left border-collapse tabular-nums">
                 <thead className="text-xs text-white uppercase bg-blue-600 sticky top-0 z-20 shadow-md">
                   <tr>
-                    <th className="px-3 py-3 font-semibold border-r border-blue-500 sticky left-0 z-30 bg-blue-600 min-w-[100px] shadow-[1px_0_0_0_#3b82f6]">Ngày</th>
-                    <th className="px-2 py-3 font-semibold border-r border-blue-500 min-w-[90px] text-center">Trạng thái</th>
+                    <th className="w-10 px-1 py-3 border-r border-blue-500 text-center sticky left-0 z-30 bg-blue-600" />
+                    <th className="px-3 py-3 font-semibold border-r border-blue-500 sticky left-[40px] z-30 bg-blue-600 min-w-[100px] shadow-[1px_0_0_0_#3b82f6]">Ngày</th>
+                    <th className="px-3 py-3 font-semibold border-r border-blue-500 min-w-[120px] text-left">Tua trực</th>
                     {INPATIENT_FIELDS.map((f) => (
                       <th key={f.key} className="px-2 py-3 font-semibold border-r border-blue-500 min-w-[70px] text-center">
                         {f.label}
@@ -539,56 +595,100 @@ export default function DataEntryPage() {
                   {daysInMonth.map((dateStr) => {
                     const report = monthReports[dateStr] || {};
                     const explicitlyLocked = report.status === REPORT_STATUS.LOCKED;
-                    const autoLocked = settings?.autoLockEnabled && shouldAutoLock(dateStr, settings.autoLockHour);
+                    const explicitlyUnlocked = report.status === REPORT_STATUS.UNLOCKED;
+                    const autoLocked = settings?.autoLockEnabled && shouldAutoLock(dateStr, settings.autoLockHour) && !explicitlyUnlocked;
                     const isLocked = explicitlyLocked || autoLocked;
                     const editable = canEdit(report, dateStr);
-                    const rowClass = editable ? 'bg-white group even:bg-slate-50 odd:bg-white hover:bg-slate-200 focus-within:bg-blue-100 focus-within:hover:bg-blue-100 transition-colors' : 'bg-slate-50 text-slate-500';
+                    const filledDeathRows = getFilledDeathRowsCount(dateStr);
+                    const tuVongVal = report.tuVong || 0;
+                    const isDeathWarning = tuVongVal > filledDeathRows;
+                    const rowClass = editable ? 'bg-yellow-50/50 group hover:bg-yellow-100/50 focus-within:bg-blue-100 focus-within:hover:bg-blue-100 transition-colors' : 'bg-slate-50 text-slate-500';
 
                     return (
-                      <tr key={dateStr} onClick={() => setDetailDate(dateStr)} className={`${rowClass} border-b border-slate-200 cursor-pointer ${detailDate === dateStr ? 'ring-2 ring-inset ring-blue-400 bg-blue-50/30' : ''}`}>
-                        <td className={`px-3 py-2 font-medium border-r border-slate-200 sticky left-0 z-10 tabular-nums whitespace-nowrap text-slate-900 transition-colors shadow-[1px_0_0_0_#e2e8f0] ${editable ? (detailDate === dateStr ? 'bg-blue-50/50' : 'bg-white group-even:bg-slate-50 group-hover:bg-slate-200 group-focus-within:bg-blue-100 group-focus-within:hover:bg-blue-100') : 'bg-slate-50'}`}>
-                          {formatDisplayDate(dateStr)}
-                        </td>
-                        <td className="px-2 py-2 border-r border-slate-100 text-center">
-                          <div className={`mx-auto flex items-center justify-center w-7 h-7 rounded-sm transition-colors ${explicitlyLocked ? 'bg-slate-100 text-slate-500' : autoLocked ? 'bg-orange-50 text-orange-500' : 'bg-blue-50 text-blue-500'}`} title={explicitlyLocked ? "Đã khóa (Thủ công)" : autoLocked ? "Khóa tự động theo cài đặt hệ thống" : "Đang mở"}>
-                            {explicitlyLocked || autoLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                      <tr key={dateStr} onClick={() => setDetailDate(dateStr)} className={`${rowClass} border-b border-slate-200 cursor-pointer ${detailDate === dateStr ? 'bg-blue-50/30' : ''}`}>
+                        <td className={`w-10 px-1 py-2 border-r border-slate-100 text-center sticky left-0 z-10 ${editable ? (detailDate === dateStr ? 'bg-blue-50 shadow-[inset_2px_0_0_0_#60a5fa,inset_0_2px_0_0_#60a5fa,inset_0_-2px_0_0_#60a5fa]' : 'bg-[#fffbeb] group-hover:bg-[#fef3c7] group-focus-within:bg-blue-100') : 'bg-slate-50'}`}>
+                          <div className={`mx-auto flex items-center justify-center w-6 h-6 rounded-sm transition-colors ${explicitlyLocked ? 'text-slate-400' : autoLocked ? 'text-orange-400' : 'text-blue-400'}`} title={explicitlyLocked ? "Đã khóa (Thủ công)" : autoLocked ? "Khóa tự động" : "Đang mở"}>
+                            {explicitlyLocked || autoLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
                           </div>
                         </td>
-                        {INPATIENT_FIELDS.map((field) => (
-                          <td
-                            key={field.key}
-                            className={`px-1 py-1 border-r border-slate-100 text-center align-middle ${field.computed ? 'bg-slate-50/50 font-semibold text-slate-700' : ''}`}
-                          >
-                            {field.editable && editable ? (
-                              <div className="relative group-focus-within:z-10 mx-auto w-16">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  aria-label={`Nhập ${field.label} ngày ${formatDisplayDate(dateStr)}`}
-                                  className="w-full h-8 px-1 text-center bg-white border border-slate-300 rounded-md shadow-sm hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all tabular-nums text-slate-900 font-medium"
-                                  value={report[field.key] ?? 0}
-                                  onChange={(e) =>
-                                    handleFieldChange(dateStr, field.key, e.target.value)
-                                  }
-                                  onBlur={() => handleAutoSaveRow(dateStr)}
-                                  onKeyDown={handleKeyDown}
-                                  onFocus={(e) => e.target.select()}
-                                />
+                        <td className={`px-3 py-2 font-medium border-r border-slate-200 sticky left-[40px] z-10 tabular-nums whitespace-nowrap text-slate-900 transition-colors ${editable ? (detailDate === dateStr ? 'bg-blue-50 shadow-[inset_0_2px_0_0_#60a5fa,inset_0_-2px_0_0_#60a5fa,1px_0_0_0_#e2e8f0]' : 'bg-[#fffbeb] group-hover:bg-[#fef3c7] group-focus-within:bg-blue-100 group-focus-within:hover:bg-blue-100 shadow-[1px_0_0_0_#e2e8f0]') : 'bg-slate-50 shadow-[1px_0_0_0_#e2e8f0]'}`}>
+                          <div className="flex items-center gap-1.5 justify-between">
+                            <span>{formatDisplayDate(dateStr)}</span>
+                            {isDeathWarning && (
+                              <div title={`Bạn chưa nhập đủ danh sách bệnh nhân tử vong (thiếu ${tuVongVal - filledDeathRows} ca)`} className="inline-flex shrink-0">
+                                <AlertCircle className="w-4 h-4 text-red-500 animate-[pulse_1.5s_ease-in-out_infinite]" />
                               </div>
-                            ) : (
-                              <span className="block mx-auto min-w-[2rem]">{report[field.key] ?? 0}</span>
                             )}
-                          </td>
-                        ))}
-                        <td className="px-2 py-2 text-center align-middle">
+                          </div>
+                        </td>
+                        <td className={`px-2 py-1 border-r border-slate-100 align-middle ${editable ? (detailDate === dateStr ? 'bg-blue-50 shadow-[inset_0_2px_0_0_#60a5fa,inset_0_-2px_0_0_#60a5fa]' : 'bg-[#fffbeb] group-hover:bg-[#fef3c7] group-focus-within:bg-blue-100 group-focus-within:hover:bg-blue-100') : 'bg-slate-50'}`}>
+                          {editable ? (
+                            <div className="relative group-focus-within:z-10 w-full min-w-[110px]">
+                              <input
+                                type="text"
+                                aria-label={`Nhập tua trực ngày ${formatDisplayDate(dateStr)}`}
+                                className="w-full h-8 px-2 bg-white border border-slate-300 rounded-md shadow-sm hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all text-slate-900 text-sm font-medium"
+                                value={report.shiftName ?? ''}
+                                placeholder="Ghi tên tua..."
+                                onChange={(e) => handleFieldChange(dateStr, 'shiftName', e.target.value)}
+                                onBlur={() => handleAutoSaveRow(dateStr)}
+                                onKeyDown={handleKeyDown}
+                              />
+                            </div>
+                          ) : (
+                            <span className="block min-w-[110px] text-slate-600 truncate text-sm px-1 font-medium" title={report.shiftName || ''}>
+                              {report.shiftName || '—'}
+                            </span>
+                          )}
+                        </td>
+                        {(() => {
+                          const rowInvalid = (report.bnHienTai ?? 0) < 0;
+                          return INPATIENT_FIELDS.map((field) => {
+                            const isNegativeComputed = field.key === 'bnHienTai' && rowInvalid;
+                            return (
+                              <td
+                                key={field.key}
+                                className={`px-1 py-1 border-r border-slate-100 text-center align-middle relative ${detailDate === dateStr ? 'bg-blue-50/30' : ''} ${field.computed ? (isNegativeComputed ? 'bg-red-50 font-semibold text-red-600' : 'bg-black/[0.02] font-semibold text-slate-700') : ''}`}
+                                style={detailDate === dateStr ? { boxShadow: 'inset 0 2px 0 0 #60a5fa, inset 0 -2px 0 0 #60a5fa' } : {}}
+                              >
+                                {field.editable && editable ? (
+                                  <div className="relative group-focus-within:z-10 mx-auto w-16">
+                                    <input
+                                      type="number"
+                                      min={field.key === 'tuVong' ? filledDeathRows : "0"}
+                                      aria-label={`Nhập ${field.label} ngày ${formatDisplayDate(dateStr)}`}
+                                      className={`w-full h-8 px-1 text-center border rounded-md shadow-sm hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all tabular-nums font-medium ${field.key === 'tuVong' && isDeathWarning ? 'bg-red-100 border-red-400 text-red-800' : field.key === 'tuVong' && tuVongVal > 0 && filledDeathRows >= tuVongVal ? 'bg-emerald-50 border-emerald-400 text-emerald-800' : 'bg-white border-slate-300 text-slate-900'}`}
+                                      value={report[field.key] ?? 0}
+                                      onChange={(e) =>
+                                        handleFieldChange(dateStr, field.key, e.target.value)
+                                      }
+                                      onBlur={() => handleAutoSaveRow(dateStr)}
+                                      onKeyDown={handleKeyDown}
+                                      onFocus={(e) => e.target.select()}
+                                    />
+                                  </div>
+                                ) : (
+                                  <span className={`block mx-auto min-w-[2rem] ${isNegativeComputed ? 'text-red-600 font-bold' : ''}`}>
+                                    {report[field.key] ?? 0}
+                                    {isNegativeComputed && ' ⚠️'}
+                                  </span>
+                                )}
+                              </td>
+                            );
+                          });
+                        })()}
+                        <td 
+                          className={`px-2 py-2 text-center align-middle relative ${detailDate === dateStr ? 'bg-blue-50/30' : ''}`}
+                          style={detailDate === dateStr ? { boxShadow: 'inset -2px 0 0 0 #60a5fa, inset 0 2px 0 0 #60a5fa, inset 0 -2px 0 0 #60a5fa' } : {}}
+                        >
                           {editable ? (
                             <Button
                               variant="secondary"
                               size="sm"
-                              className="h-8 w-8 p-0 text-blue-600 bg-white hover:bg-blue-600 hover:text-white shadow-sm border border-slate-300 group-hover:border-blue-200 transition-all"
+                              className={`h-8 w-8 p-0 shadow-sm border transition-all ${(report.bnHienTai ?? 0) < 0 ? 'text-red-400 bg-red-50 border-red-200 cursor-not-allowed opacity-50' : 'text-blue-600 bg-white hover:bg-blue-600 hover:text-white border-slate-300 group-hover:border-blue-200'}`}
                               onClick={() => handleSaveRow(dateStr)}
-                              disabled={saving[dateStr]}
-                              title="Lưu dòng này"
+                              disabled={saving[dateStr] || (report.bnHienTai ?? 0) < 0}
+                              title={(report.bnHienTai ?? 0) < 0 ? 'Không thể lưu: BN hiện tại âm' : 'Lưu dòng này'}
                             >
                               {saving[dateStr] ? <Loader2 className="h-4 w-4 animate-spin"/> : <Save className="h-4 w-4" />}
                             </Button>
@@ -607,6 +707,7 @@ export default function DataEntryPage() {
                     <td colSpan="2" className="px-3 py-4 text-right uppercase text-[13px] border-r border-blue-200 sticky left-0 z-10 bg-blue-100 shadow-[1px_0_0_0_#bfdbfe]">
                       Tổng cộng (Tháng):
                     </td>
+                    <td className="px-3 py-4 border-r border-blue-200 bg-blue-100"></td>
                     {INPATIENT_FIELDS.map((field) => (
                       <td key={'total_' + field.key} className="px-2 py-4 text-center border-r border-blue-200 text-blue-700 text-base">
                         {totals[field.key]}
@@ -618,142 +719,46 @@ export default function DataEntryPage() {
               </table>
             </div>
           )}
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-      {/* Chi tiết báo cáo ng​ày (Shift Name & Infectious Diseases) */}
-      {!dataLoading && daysInMonth.length > 0 && detailDate && (
-        <Card className="flex-none mt-6 overflow-visible shadow-sm border-slate-200 bg-white">
-          <CardContent className="p-4 md:p-6 overflow-visible">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
-              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                 <AlertCircle className="w-5 h-5 text-blue-500" />
-                 Chi tiết báo cáo
-              </h3>
-              <div className="flex items-center gap-3 mt-4 md:mt-0">
-                <span className="text-sm font-medium text-slate-600">Chọn ngày:</span>
-                <Select value={detailDate} onValueChange={setDetailDate}>
-                  <SelectTrigger className="w-[150px] bg-white border-slate-300">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {daysInMonth.map(d => (
-                      <SelectItem key={d} value={d}>{formatDisplayDate(d)}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            
-            {(() => {
-               const rep = monthReports[detailDate] || {};
-               const editable = canEdit(rep, detailDate);
-               const infectiousData = rep.infectiousData || [];
-               
-               return (
-                 <div className="space-y-6">
-                   <div className="flex flex-col md:flex-row md:items-end gap-4">
-                     <div className="flex-1 max-w-sm">
-                        <Label htmlFor="shiftName" className="text-slate-600 mb-2 block font-medium">Tên tua trực / Trưởng tua trực</Label>
-                        <Input 
-                          id="shiftName"
-                          value={rep.shiftName || ''}
-                          onChange={(e) => handleFieldChange(detailDate, 'shiftName', e.target.value)}
-                          onBlur={() => handleAutoSaveRow(detailDate)}
-                          disabled={!editable}
-                          placeholder="Nhập tên tuyến trực..."
-                          className="bg-white border-slate-300 focus:ring-blue-500 h-10 shadow-sm"
-                        />
-                     </div>
-                     {!editable && (
-                        <div className="text-sm text-slate-600 bg-slate-100 px-3 py-2 rounded-md flex items-center gap-2 h-10 border border-slate-200">
-                          <Lock className="w-4 h-4 text-slate-500"/> Chế độ xem (Đã khóa)
-                        </div>
-                     )}
-                   </div>
-                   
-                   <div className="pt-6 border-t border-slate-200">
-                     <div className="flex items-center justify-between mb-4">
-                       <h4 className="font-semibold text-slate-800 text-base">Số liệu Bệnh truyền nhiễm (Nếu có)</h4>
-                       {editable && (
-                         <Button variant="outline" size="sm" onClick={() => handleAddDisease(detailDate)} className="border-dashed border-blue-400 text-blue-600 hover:bg-blue-50 shadow-sm">
-                           <Plus className="w-4 h-4 mr-1.5"/> Báo cáo thêm Bệnh Truyền Nhiễm
-                         </Button>
-                       )}
-                     </div>
-                     
-                     {infectiousData.length === 0 ? (
-                       <div className="text-center py-10 text-slate-500 bg-slate-50/80 rounded-lg border border-dashed border-slate-300">
-                         Không có dữ liệu bệnh truyền nhiễm cho ngày này.
-                       </div>
-                     ) : (
-                       <div className="overflow-x-auto rounded-lg border border-slate-200">
-                         <table className="w-full text-sm text-left border-collapse tabular-nums min-w-[900px]">
-                           <thead className="text-[11px] text-slate-500 uppercase bg-slate-100 border-b border-slate-200">
-                             <tr>
-                               <th className="px-3 py-3 font-semibold w-[220px]">Tên bệnh truyền nhiễm</th>
-                               {INPATIENT_FIELDS.map(f => (
-                                 <th key={f.key} className="px-2 py-3 font-semibold text-center leading-tight">{f.label}</th>
-                               ))}
-                               {editable && <th className="px-2 py-3 text-center w-[50px]"></th>}
-                             </tr>
-                           </thead>
-                           <tbody className="divide-y divide-slate-100 bg-white">
-                             {infectiousData.map((disease, idx) => (
-                                <tr key={idx} className="hover:bg-slate-50 focus-within:bg-blue-50/50 transition-colors group">
-                                  <td className="px-3 py-2">
-                                    {editable ? (
-                                      <Select value={disease.diseaseName} onValueChange={(val) => {handleDiseaseChange(detailDate, idx, 'diseaseName', val); handleAutoSaveRow(detailDate);}}>
-                                        <SelectTrigger className="w-full h-9 bg-white border-slate-300 shadow-sm">
-                                          <SelectValue placeholder="Chọn loại bệnh..." />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          {diseaseCatalog.map(d => (
-                                            <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>
-                                          ))}
-                                        </SelectContent>
-                                      </Select>
-                                    ) : (
-                                      <span className="font-medium text-slate-800 px-2">{disease.diseaseName || '—'}</span>
-                                    )}
-                                  </td>
-                                  {INPATIENT_FIELDS.map(f => (
-                                    <td key={f.key} className={`px-1 py-1 text-center align-middle ${f.computed ? 'bg-slate-50 font-semibold text-slate-700' : ''}`}>
-                                      {f.editable && editable ? (
-                                        <input
-                                          type="number" min="0" placeholder="0"
-                                          className="w-14 h-9 px-1 text-center bg-white border border-slate-300 rounded shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all tabular-nums text-slate-900 mx-auto block"
-                                          value={disease[f.key] ?? ''}
-                                          onChange={(e) => handleDiseaseChange(detailDate, idx, f.key, e.target.value)}
-                                          onBlur={() => handleAutoSaveRow(detailDate)}
-                                          onKeyDown={handleKeyDown}
-                                          onFocus={(e) => e.target.select()}
-                                        />
-                                      ) : (
-                                        <span className="block mx-auto min-w-[2rem] text-slate-600">{disease[f.key] ?? 0}</span>
-                                      )}
-                                    </td>
-                                  ))}
-                                  {editable && (
-                                    <td className="px-2 py-2 text-center align-middle">
-                                       <Button variant="ghost" size="sm" onClick={() => { handleRemoveDisease(detailDate, idx); setTimeout(() => handleAutoSaveRow(detailDate), 50); }} className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50 transition-colors">
-                                         <Trash2 className="w-4 h-4"/>
-                                       </Button>
-                                    </td>
-                                  )}
-                                </tr>
-                             ))}
-                           </tbody>
-                         </table>
-                       </div>
-                     )}
-                   </div>
-                 </div>
-               );
-            })()}
-          </CardContent>
-        </Card>
-      )}
+        <TabsContent value="btn" className="flex-1 overflow-hidden mt-0">
+          <Card className="h-full overflow-hidden shadow-sm border-slate-200 flex flex-col bg-white border-t-0 rounded-t-none">
+            <CardContent className="p-0 flex-1 overflow-hidden flex flex-col h-full relative">
+              <InfectiousEntryTab
+                monthReports={monthReports}
+                daysInMonth={daysInMonth}
+                detailDate={detailDate}
+                diseaseCatalog={diseaseCatalog}
+                settings={settings}
+                canEdit={canEdit}
+                onDiseaseChange={handleDiseaseChange}
+                onAddDisease={handleAddDisease}
+                onRemoveDisease={handleRemoveDisease}
+                onAutoSave={handleAutoSaveRow}
+                onKeyDown={handleKeyDown}
+                dataLoading={dataLoading}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="tv" className="flex-1 overflow-hidden mt-0">
+          <Card className="h-full overflow-hidden shadow-sm border-slate-200 flex flex-col bg-white border-t-0 rounded-t-none">
+            <CardContent className="p-0 flex-1 overflow-hidden flex flex-col h-full relative">
+              <DeathReportTab
+                monthReports={monthReports}
+                setMonthReports={setMonthReports}
+                detailDate={detailDate}
+                selectedDeptId={selectedDeptId}
+                settings={settings}
+                handleAutoSaveRow={handleAutoSaveRow}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       {/* Tailwind Toast implementation (Basic) */}
       {toast && (

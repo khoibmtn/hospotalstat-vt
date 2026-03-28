@@ -1,5 +1,5 @@
 import { INPATIENT_FIELDS } from '../../utils/constants';
-import { aggregateDeptSummaries } from '../../utils/computedColumns';
+import { aggregateGrandTotal } from '../../utils/computedColumns';
 import { formatDisplayDate } from '../../utils/dateUtils';
 import { Loader2 } from 'lucide-react';
 
@@ -14,7 +14,7 @@ const COMPACT_LABELS = {
   bnHienTai: 'HT',
 };
 
-export default function KCBOverviewTable({ data, loading, startDate, endDate, selectedDeptName }) {
+export default function KCBOverviewTable({ data, rawReports, loading, startDate, endDate, selectedDeptName }) {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20 text-slate-400">
@@ -33,7 +33,7 @@ export default function KCBOverviewTable({ data, loading, startDate, endDate, se
     );
   }
 
-  const grandTotals = data.length > 1 ? aggregateDeptSummaries(data) : null;
+  const grandTotals = data.length > 1 ? aggregateGrandTotal(rawReports) : null;
   const title = selectedDeptName
     ? `Tổng hợp ${selectedDeptName}`
     : 'Tổng hợp toàn viện';

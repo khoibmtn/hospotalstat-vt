@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { getReportsByDate, getReportsByDateRange } from '../services/reportService';
 import { getDepartments, getFacilities } from '../services/departmentService';
-import { aggregateRows } from '../utils/computedColumns';
+import { aggregateDeptSummaries, aggregateGrandTotal } from '../utils/computedColumns';
 import { getToday, formatDisplayDate } from '../utils/dateUtils';
 import { INPATIENT_FIELDS } from '../utils/constants';
 import { format, subDays } from 'date-fns';
@@ -49,7 +49,7 @@ export default function DashboardPage() {
         const trend = Object.entries(byDate)
           .sort(([a], [b]) => a.localeCompare(b))
           .map(([date, reps]) => {
-            const agg = aggregateRows(reps);
+            const agg = aggregateDeptSummaries(reps);
             return {
               date: formatDisplayDate(date),
               ...agg,
@@ -77,7 +77,7 @@ export default function DashboardPage() {
     );
   }
 
-  const todayTotals = aggregateRows(todayReports);
+  const todayTotals = aggregateDeptSummaries(todayReports);
   const kpiCards = [
     { label: 'Tổng BN hiện tại', value: todayTotals.bnHienTai, icon: '🏥', color: 'text-blue-600', bg: 'bg-blue-50' },
     { label: 'Vào viện', value: todayTotals.vaoVien, icon: '📥', color: 'text-emerald-600', bg: 'bg-emerald-50' },
@@ -116,7 +116,7 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div>
-                  <span className="text-3xl font-bold tracking-tight text-slate-900">{kpi.value.toLocaleString()}</span>
+                  <span className="text-3xl font-bold tracking-tight text-slate-900">{(kpi.value ?? 0).toLocaleString()}</span>
                 </div>
               </CardContent>
             </Card>

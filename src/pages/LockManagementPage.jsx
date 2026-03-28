@@ -3,9 +3,9 @@ import { useAuth } from '../contexts/AuthContext';
 import { getReportsByDateRange, lockReportsBatch, unlockReportsBatch, unlockReport, lockReport } from '../services/reportService';
 import { getDepartments, getFacilities } from '../services/departmentService';
 import { getSettings, updateSettings } from '../services/settingsService';
-import { formatDisplayDate } from '../utils/dateUtils';
+import { formatDisplayDate, shouldAutoLock } from '../utils/dateUtils';
 import { REPORT_STATUS } from '../utils/constants';
-import { format, parse, subDays, startOfMonth, subMonths, endOfMonth, differenceInCalendarDays } from 'date-fns';
+import { format, parse, subDays, startOfMonth, subMonths, endOfMonth, differenceInCalendarDays, eachDayOfInterval } from 'date-fns';
 import { vi } from 'date-fns/locale';
 
 import { Card, CardContent } from '@/components/ui/card';
@@ -271,12 +271,43 @@ export default function LockManagementPage() {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   // Filtered reports
-  const filteredReports = useMemo(
-    () => reports.filter((r) => selectedDeptIds.includes(r.departmentId)),
-    [reports, selectedDeptIds]
-  );
+  const filteredReports = useMemo(() => {
+    const existingMap = new Map();
+    reports.forEach((r) => existingMap.set(`${r.date}_${r.departmentId}`, r));
 
-  const lockableCount = filteredReports.filter((r) => r.status === REPORT_STATUS.OPEN).length;
+    const result = [];
+    const start = parse(startDate, DATE_FMT, new Date());
+    const end = parse(endDate, DATE_FMT, new Date());
+    const days = eachDayOfInterval({ start, end }).map(d => format(d, DATE_FMT));
+
+    days.forEach(dateStr => {
+      selectedDeptIds.forEach(deptId => {
+        const key = `${dateStr}_${deptId}`;
+        const existing = existingMap.get(key);
+        if (existing) {
+          result.push(existing);
+        } else {
+          // If it's missing, check if it's auto-locked
+          const isAutoLocked = settings?.autoLockEnabled && shouldAutoLock(dateStr, settings?.autoLockHour);
+          if (isAutoLocked) {
+             const dept = departments.find(d => d.id === deptId);
+             result.push({
+               id: `virtual_${key}`,
+               date: dateStr,
+               departmentId: deptId,
+               departmentName: dept?.name || '',
+               status: REPORT_STATUS.LOCKED,
+               isVirtual: true,
+               lockedBy: 'Tự động khóa (chưa nhập)'
+             });
+          }
+        }
+      });
+    });
+    return result;
+  }, [reports, selectedDeptIds, startDate, endDate, departments, settings]);
+
+  const lockableCount = filteredReports.filter((r) => r.status === REPORT_STATUS.OPEN || r.status === REPORT_STATUS.UNLOCKED).length;
   const unlockableCount = filteredReports.filter((r) => r.status === REPORT_STATUS.LOCKED).length;
   const nothingToDo = lockableCount === 0 && unlockableCount === 0 && !loading;
   const dayCount = differenceInCalendarDays(new Date(endDate), new Date(startDate)) + 1;
@@ -333,7 +364,7 @@ export default function LockManagementPage() {
         await lockReportsBatch(startDate, endDate, selectedDeptIds, lockedBy);
         showToast(`Đã khóa ${confirmAction.count} báo cáo`);
       } else {
-        await unlockReportsBatch(startDate, endDate, selectedDeptIds);
+        await unlockReportsBatch(startDate, endDate, selectedDeptIds, departments);
         showToast(`Đã mở khóa ${confirmAction.count} báo cáo`);
       }
       await fetchData();

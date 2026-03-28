@@ -26,16 +26,33 @@ export async function getDiseaseCatalog() {
 /**
  * Add a new disease to the catalog
  */
-export async function addDisease(name) {
+export async function addDisease(name, color = '', group = 'B') {
   const existing = await getDiseaseCatalog();
   const id = 'disease_' + Date.now();
-  await setDoc(doc(db, COLLECTION, id), {
+  const data = {
     name: name.trim(),
+    group,
     order: existing.length + 1,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
-  });
+  };
+  if (color) data.color = color;
+  await setDoc(doc(db, COLLECTION, id), data);
   return id;
+}
+
+export async function updateDiseaseGroup(id, group) {
+  await setDoc(
+    doc(db, COLLECTION, id),
+    { group, updatedAt: serverTimestamp() },
+    { merge: true }
+  );
+}
+
+export async function swapDiseaseOrder(idA, orderA, idB, orderB) {
+  const ts = serverTimestamp();
+  await setDoc(doc(db, COLLECTION, idA), { order: orderB, updatedAt: ts }, { merge: true });
+  await setDoc(doc(db, COLLECTION, idB), { order: orderA, updatedAt: ts }, { merge: true });
 }
 
 /**
@@ -45,6 +62,14 @@ export async function updateDiseaseName(id, newName) {
   await setDoc(
     doc(db, COLLECTION, id),
     { name: newName.trim(), updatedAt: serverTimestamp() },
+    { merge: true }
+  );
+}
+
+export async function updateDiseaseColor(id, color) {
+  await setDoc(
+    doc(db, COLLECTION, id),
+    { color, updatedAt: serverTimestamp() },
     { merge: true }
   );
 }

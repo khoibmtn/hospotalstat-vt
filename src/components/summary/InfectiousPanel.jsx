@@ -39,13 +39,20 @@ function totalHT(rows) {
   return dates.length > 0 ? byDate[dates[dates.length - 1]] : 0;
 }
 
-export default function InfectiousPanel({ reports, loading, selectedDept }) {
+export default function InfectiousPanel({ reports, loading, selectedDept, diseaseCatalog }) {
   const [mode, setMode] = useState('summary'); // 'summary' | 'detail'
   const [selectedDiseases, setSelectedDiseases] = useState(null); // null = all
 
   const grouped = useMemo(() => groupByDisease(reports || []), [reports]);
 
-  // Get diseases that have at least some data (auto-hide empty)
+  // Build catalog order map for sorting
+  const catalogOrderMap = useMemo(() => {
+    const m = {};
+    (diseaseCatalog || []).forEach((d, i) => { m[d.name] = d.order ?? (i + 1); });
+    return m;
+  }, [diseaseCatalog]);
+
+  // Get diseases that have at least some data, sorted by catalog order
   const activeDiseases = useMemo(() => {
     return Object.entries(grouped)
       .filter(([, rows]) => rows.some((r) =>
@@ -53,9 +60,9 @@ export default function InfectiousPanel({ reports, loading, selectedDept }) {
         (Number(r.vaoVien) || 0) > 0 ||
         (Number(r.bnCu) || 0) > 0
       ))
-      .sort(([, a], [, b]) => totalHT(b) - totalHT(a)) // Sort by total HT desc
+      .sort(([a], [b]) => (catalogOrderMap[a] ?? 999) - (catalogOrderMap[b] ?? 999))
       .map(([name]) => name);
-  }, [grouped]);
+  }, [grouped, catalogOrderMap]);
 
   // Which diseases to actually show
   const visibleDiseases = useMemo(() => {
@@ -144,6 +151,19 @@ export default function InfectiousPanel({ reports, loading, selectedDept }) {
 
       {/* Disease blocks */}
       <div className="flex-1 overflow-auto p-3 md:p-4 space-y-3 md:space-y-4">
+        {/* Aggregate all diseases */}
+        {visibleDiseases.length > 0 && (() => {
+          const allRows = visibleDiseases.flatMap((name) => grouped[name] || []);
+          return (
+            <DiseaseBlock
+              diseaseName="Tổng hợp tất cả Bệnh truyền nhiễm"
+              rows={allRows}
+              mode={mode}
+              isAggregate
+            />
+          );
+        })()}
+
         {visibleDiseases.map((name) => (
           <DiseaseBlock
             key={name}

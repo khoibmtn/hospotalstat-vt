@@ -30,8 +30,10 @@ export function applyComputedColumns(row) {
  * - bnHienTai: value from the latest date row (cuối kỳ)
  * - Flow fields (vào, đến, đi, ra, tử, chuyển): summed
  */
+const EMPTY_TOTALS = { bnCu: 0, vaoVien: 0, chuyenDen: 0, chuyenDi: 0, raVien: 0, tuVong: 0, chuyenVien: 0, bnHienTai: 0 };
+
 export function aggregateRows(rows) {
-  if (!rows || rows.length === 0) return {};
+  if (!rows || rows.length === 0) return { ...EMPTY_TOTALS };
 
   const flowKeys = ['vaoVien', 'chuyenDen', 'chuyenDi', 'raVien', 'tuVong', 'chuyenVien'];
   const totals = {};
@@ -50,11 +52,11 @@ export function aggregateRows(rows) {
 }
 
 /**
- * Aggregate already-summarized department rows into a grand total.
- * All fields are summed directly (each dept already has correct bnCu/bnHienTai).
+ * Aggregate same-date reports from multiple departments into one row.
+ * All fields are summed (valid because they share the same date).
  */
 export function aggregateDeptSummaries(deptRows) {
-  if (!deptRows || deptRows.length === 0) return {};
+  if (!deptRows || deptRows.length === 0) return { ...EMPTY_TOTALS };
 
   const allKeys = ['bnCu', 'vaoVien', 'chuyenDen', 'chuyenDi', 'raVien', 'tuVong', 'chuyenVien', 'bnHienTai'];
   const totals = {};
@@ -62,6 +64,41 @@ export function aggregateDeptSummaries(deptRows) {
   allKeys.forEach((key) => {
     totals[key] = deptRows.reduce((sum, row) => sum + (Number(row[key]) || 0), 0);
   });
+
+  return totals;
+}
+
+/**
+ * Aggregate raw reports into a grand total across departments AND dates.
+ * - bnCu = SUM of all departments' bnCu on the earliest date (đầu kỳ)
+ * - bnHienTai = SUM of all departments' bnHienTai on the latest date (cuối kỳ)
+ * - Flow fields = SUM across all reports
+ */
+export function aggregateGrandTotal(rawReports) {
+  if (!rawReports || rawReports.length === 0) return { ...EMPTY_TOTALS };
+
+  const flowKeys = ['vaoVien', 'chuyenDen', 'chuyenDi', 'raVien', 'tuVong', 'chuyenVien'];
+  const totals = {};
+
+  // Sum flow fields across all reports
+  flowKeys.forEach((key) => {
+    totals[key] = rawReports.reduce((sum, row) => sum + (Number(row[key]) || 0), 0);
+  });
+
+  // Find earliest and latest dates
+  const dates = [...new Set(rawReports.map((r) => r.date))].sort();
+  const firstDate = dates[0];
+  const lastDate = dates[dates.length - 1];
+
+  // bnCu = sum of all departments on the earliest date
+  totals.bnCu = rawReports
+    .filter((r) => r.date === firstDate)
+    .reduce((sum, r) => sum + (Number(r.bnCu) || 0), 0);
+
+  // bnHienTai = sum of all departments on the latest date
+  totals.bnHienTai = rawReports
+    .filter((r) => r.date === lastDate)
+    .reduce((sum, r) => sum + (Number(r.bnHienTai) || 0), 0);
 
   return totals;
 }

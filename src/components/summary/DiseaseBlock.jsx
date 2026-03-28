@@ -14,7 +14,7 @@ const COMPACT_LABELS = {
   bnHienTai: 'HT',
 };
 
-export default function DiseaseBlock({ diseaseName, rows, mode, departments }) {
+export default function DiseaseBlock({ diseaseName, rows, mode, departments, isAggregate }) {
   // Calculate header summary totals
   const headerTotals = useMemo(() => {
     const totals = aggregateDeptSummaries(rows);
@@ -62,9 +62,9 @@ export default function DiseaseBlock({ diseaseName, rows, mode, departments }) {
   return (
     <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
       {/* Disease header with summary stats */}
-      <div className="px-3 md:px-4 py-2.5 md:py-3 bg-amber-50/80 border-b border-amber-200/60 flex flex-wrap items-center gap-2 md:gap-4">
+      <div className={`px-3 md:px-4 py-2.5 md:py-3 border-b flex flex-wrap items-center gap-2 md:gap-4 ${isAggregate ? 'bg-teal-50/80 border-teal-200/60' : 'bg-amber-50/80 border-amber-200/60'}`}>
         <span className="font-semibold text-sm md:text-base text-slate-800 flex items-center gap-1.5">
-          🦠 {diseaseName}
+          {isAggregate ? '📊' : '🦠'} {diseaseName}
         </span>
         <div className="flex gap-2 md:gap-3 text-xs md:text-sm text-slate-600 ml-auto">
           <span>HT: <strong className="text-slate-800">{totalHT}</strong></span>
@@ -114,6 +114,18 @@ export default function DiseaseBlock({ diseaseName, rows, mode, departments }) {
                 ))}
               </tr>
             ))}
+            {tableRows.length > 1 && (
+              <tr className="bg-slate-100 font-bold border-t-2 border-slate-300">
+                <td className="px-2 md:px-3 py-2 border-r border-slate-200 text-slate-800 whitespace-nowrap uppercase text-xs">
+                  Tổng cộng
+                </td>
+                {INPATIENT_FIELDS.map((f) => (
+                  <td key={f.key} className="px-1 md:px-2 py-2 border-r border-slate-200 text-center tabular-nums text-slate-800">
+                    {tableRows.reduce((sum, row) => sum + (Number(row[f.key]) || 0), 0)}
+                  </td>
+                ))}
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

@@ -26,6 +26,7 @@ export const TITLES = [
 export const REPORT_STATUS = {
   OPEN: 'open',
   LOCKED: 'locked',
+  UNLOCKED: 'unlocked',
 };
 
 export const EMAIL_DOMAIN = 'hospitalstat.local';
