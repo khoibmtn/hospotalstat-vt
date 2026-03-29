@@ -16,7 +16,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 
-import { Settings, Building2, Layers, Users, Plus, Trash2, Edit2, ShieldAlert, KeyRound, Loader2, Save, X, ShieldCheck, Upload, ListChecks, Check, Lock, Unlock, Palette, ArrowUp, ArrowDown, Asterisk } from 'lucide-react';
+import { Settings, Building2, Layers, Users, Plus, Trash2, Edit2, ShieldAlert, KeyRound, Loader2, Save, X, ShieldCheck, Upload, ListChecks, Check, Lock, Unlock, Palette, ArrowUp, ArrowDown, Asterisk, ArrowRightLeft } from 'lucide-react';
 import ImportDataModal from '../components/data-entry/ImportDataModal';
 
 import { seedDiseaseCatalog, syncDiseaseCatalog } from '../utils/seedDiseases';
@@ -217,6 +217,7 @@ export default function SettingsPage() {
   const [newDeptFac, setNewDeptFac] = useState('');
   const [editingDept, setEditingDept] = useState(null);
   const [editingDeptName, setEditingDeptName] = useState('');
+  const [transferringDept, setTransferringDept] = useState(null);
 
   async function handleAddDepartment() {
     if (!newDeptName.trim() || !newDeptFac) return;
@@ -261,6 +262,20 @@ export default function SettingsPage() {
     await saveDepartment(dept.id, { ...dept, active: newActive });
     setDepts((prev) => prev.map((d) => d.id === dept.id ? { ...d, active: newActive } : d));
     showToast(newActive ? 'Đã mở khóa khoa' : 'Đã khóa khoa');
+  }
+
+  async function handleTransferDept(dept, newFacilityId) {
+    if (!newFacilityId || newFacilityId === dept.facilityId) { setTransferringDept(null); return; }
+    const targetFac = facilities.find(f => f.id === newFacilityId);
+    if (!window.confirm(`Chuyển khoa "${dept.name}" sang ${targetFac?.name || newFacilityId}?`)) {
+      setTransferringDept(null);
+      return;
+    }
+    const targetDepts = departments.filter(d => d.facilityId === newFacilityId);
+    await saveDepartment(dept.id, { ...dept, facilityId: newFacilityId, order: targetDepts.length + 1 });
+    setDepts(prev => prev.map(d => d.id === dept.id ? { ...d, facilityId: newFacilityId, order: targetDepts.length + 1 } : d));
+    setTransferringDept(null);
+    showToast(`Đã chuyển khoa "${dept.name}" sang ${targetFac?.name}`);
   }
 
   // ---- User management ----
@@ -809,15 +824,39 @@ export default function SettingsPage() {
                                     )}
                                   </div>
                                   <div className="flex items-center gap-1 shrink-0">
-                                    <Button variant="ghost" size="sm" onClick={() => handleStartEditDept(d)} className="text-slate-500 hover:text-blue-600 hover:bg-blue-50 h-7 px-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                                      <Edit2 className="w-3.5 h-3.5" />
-                                    </Button>
-                                    <Button variant="ghost" size="sm" onClick={() => handleToggleDeptLock(d)} className={`opacity-0 group-hover:opacity-100 transition-opacity h-7 px-1.5 ${d.active === false ? 'text-emerald-600 hover:bg-emerald-50' : 'text-amber-600 hover:bg-amber-50'}`}>
-                                      {d.active === false ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
-                                    </Button>
-                                    <Button variant="ghost" size="sm" onClick={() => handleDeleteDepartment(d.id)} className="text-red-500 hover:text-red-700 hover:bg-red-50 h-7 px-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </Button>
+                                    {transferringDept === d.id ? (
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-xs text-slate-500 whitespace-nowrap">→</span>
+                                        <Select onValueChange={(val) => handleTransferDept(d, val)}>
+                                          <SelectTrigger className="h-7 w-[140px] text-xs">
+                                            <SelectValue placeholder="Chọn cơ sở..." />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            {facilities.filter(f => f.id !== d.facilityId).map(f => (
+                                              <SelectItem key={f.id} value={f.id} className="text-xs">{f.name}</SelectItem>
+                                            ))}
+                                          </SelectContent>
+                                        </Select>
+                                        <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-500 hover:bg-slate-100" onClick={() => setTransferringDept(null)}>
+                                          <X className="w-3.5 h-3.5" />
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      <>
+                                        <Button variant="ghost" size="sm" onClick={() => handleStartEditDept(d)} className="text-slate-500 hover:text-blue-600 hover:bg-blue-50 h-7 px-1.5">
+                                          <Edit2 className="w-3.5 h-3.5" />
+                                        </Button>
+                                        <Button variant="ghost" size="sm" onClick={() => setTransferringDept(d.id)} className="text-slate-500 hover:text-blue-600 hover:bg-blue-50 h-7 px-1.5" title="Chuyển cơ sở">
+                                          <ArrowRightLeft className="w-3.5 h-3.5" />
+                                        </Button>
+                                        <Button variant="ghost" size="sm" onClick={() => handleToggleDeptLock(d)} className={`h-7 px-1.5 ${d.active === false ? 'text-emerald-600 hover:bg-emerald-50' : 'text-amber-600 hover:bg-amber-50'}`}>
+                                          {d.active === false ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                                        </Button>
+                                        <Button variant="ghost" size="sm" onClick={() => handleDeleteDepartment(d.id)} className="text-red-500 hover:text-red-700 hover:bg-red-50 h-7 px-1.5">
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </Button>
+                                      </>
+                                    )}
                                   </div>
                                 </li>
                               ))}

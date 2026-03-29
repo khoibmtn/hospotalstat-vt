@@ -237,7 +237,7 @@ HospotalStat-VT/
 │   │   ├── authService.js          # Register, login, logout, user CRUD
 │   │   ├── departmentService.js    # Facility/Department CRUD + seed
 │   │   ├── diseaseCatalogService.js # Disease catalog CRUD + usage check
-│   │   ├── reportService.js        # Daily report CRUD + cascade + import
+│   │   ├── reportService.js        # Daily report CRUD + cascade + import + real-time listeners
 │   │   └── settingsService.js      # Settings read/write
 │   ├── utils/
 │   │   ├── constants.js            # ROLES, FIELDS, STATUS, DEFAULTS
@@ -249,8 +249,8 @@ HospotalStat-VT/
 │   ├── pages/
 │   │   ├── LoginPage.jsx           # Đăng nhập = nickname + password
 │   │   ├── RegisterPage.jsx        # Đăng ký = nickname + profile
-│   │   ├── DashboardPage.jsx       # Trang chủ
-│   │   ├── DataEntryPage.jsx       # Nhập liệu hàng ngày (KCB + BTN)
+│   │   ├── DashboardPage.jsx       # Dashboard real-time (KPI cards + trend + dept table)
+│   │   ├── DataEntryPage.jsx       # Nhập liệu hàng ngày (KCB + BTN + Tử vong)
 │   │   ├── SummaryPage.jsx         # Bảng tổng hợp
 │   │   ├── LockManagementPage.jsx  # Quản lý khóa/mở khóa báo cáo
 │   │   └── SettingsPage.jsx        # Cài đặt (tabs: chung, user, cơ sở/khoa, danh mục bệnh)
@@ -448,10 +448,32 @@ SummaryPage.jsx
 
 ---
 
-### 4.6 Dashboard
+### 4.6 Dashboard (DashboardPage)
 
-- Hiển thị thống kê tổng quan
-- Cards thông tin nhanh
+**Real-time updates via Firestore `onSnapshot` listeners** — Dashboard auto-updates when any department submits/edits data.
+
+**KPI Cards (top row, 4 cards):**
+- **BN hiện tại**: Tổng BN toàn viện + delta so hôm trước (màu đỏ/xanh)
+- **BN mới**: Tổng vào viện hôm nay + delta
+- **Tử vong**: Tổng tử vong, click → navigate to death list
+- **B. Truyền nhiễm**: Tổng ca BTN + compact disease list (side-by-side layout). Mỗi bệnh: `Tên X (+n)` với delta đậm (đỏ tăng, xanh giảm)
+
+**Xu hướng 7 ngày (collapsible):**
+- Click tiêu đề → collapse/expand biểu đồ
+- Dropdown chọn: Toàn viện / Cơ sở 1 / Cơ sở 2 / từng khoa
+- 3 line series: BN hiện tại, Ra viện, Vào viện
+
+**Chi tiết theo Khoa:**
+- Bảng grouped by facility: dòng tổng cơ sở (bold) + dòng tổng toàn viện (bolder)
+- Toggleable "Tua trực" column (Eye icon)
+- Status indicators: ✓ (đã nhập), ✗ Chưa nhập
+
+**Real-time architecture:**
+- 3 `onSnapshot` listeners: today reports, yesterday reports, 7-day trend range
+- Cleanup on unmount/date change via unsubscribe callbacks
+- Service functions: `onReportsByDate()`, `onReportsByDateRange()` in reportService.js
+
+**TV mode:** `?mode=tv` → fullscreen, auto-refresh
 
 ---
 

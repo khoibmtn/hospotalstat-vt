@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { logoutUser } from '../../services/authService';
 import { ROLES, ROLE_LABELS } from '../../utils/constants';
@@ -11,6 +11,8 @@ export default function AppShell() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [searchParams] = useSearchParams();
+  const isTvMode = searchParams.get('mode') === 'tv';
 
   async function handleLogout() {
     await logoutUser();
@@ -133,6 +135,7 @@ export default function AppShell() {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
       {/* Mobile Header */}
+      {!isTvMode && (
       <div className="md:hidden flex items-center justify-between p-4 bg-slate-900 border-b border-slate-800 text-white shadow-sm shrink-0">
         <div className="flex items-center gap-2">
           <Hospital className="h-5 w-5 text-blue-400" />
@@ -150,11 +153,14 @@ export default function AppShell() {
           </SheetContent>
         </Sheet>
       </div>
+      )}
 
       {/* Desktop Sidebar */}
+      {!isTvMode && (
       <aside className="hidden md:flex w-64 shrink-0 shadow-xl z-10 sticky top-0 h-screen">
         {navContent}
       </aside>
+      )}
 
       {/* Main Content Area */}
       <main className="flex-1 w-full min-w-0 flex flex-col h-[calc(100vh-60px)] md:h-screen overflow-hidden bg-slate-50/50">

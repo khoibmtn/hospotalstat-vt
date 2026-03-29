@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { getReportsByDepartment, saveReport, initializeDepartmentReportsForMonth } from '../services/reportService';
 import { getDepartments, seedInitialData } from '../services/departmentService';
@@ -6,18 +6,21 @@ import { getSettings } from '../services/settingsService';
 import { canAccessDepartment } from '../services/authService';
 import { computeBnHienTai } from '../utils/computedColumns';
 import { validateReportRow, isFilledRow } from '../utils/validation';
-import { getCurrentReportDate, formatDisplayDate, getDaysInMonthUpTo, shouldAutoLock } from '../utils/dateUtils';
+import { getCurrentReportDate, formatDisplayDate, getDaysInMonthUpTo, getAllDaysInMonth, clampDateToMonth, shouldAutoLock } from '../utils/dateUtils';
 import { INPATIENT_FIELDS, REPORT_STATUS, ROLES } from '../utils/constants';
 import { getDiseaseCatalog } from '../services/diseaseCatalogService';
+import { parse, subMonths, addMonths, format } from 'date-fns';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Loader2, Save, FileText, CheckCircle2, AlertCircle, Lock, Unlock, Plus, Trash2 } from 'lucide-react';
+import { Loader2, Save, FileText, CheckCircle2, AlertCircle, Lock, Unlock, Plus, Trash2, ChevronLeft, ChevronRight, CalendarDays, RotateCcw } from 'lucide-react';
 import InfectiousEntryTab from '@/components/data-entry/InfectiousEntryTab';
 import DeathReportTab from '@/components/data-entry/DeathReportTab';
 
@@ -27,9 +30,18 @@ export default function DataEntryPage() {
   // App-level initialization state
   const [initLoading, setInitLoading] = useState(true);
   const [departments, setDepartments] = useState([]);
-  const [reportDate, setReportDate] = useState('');
+  const [reportDate, setReportDate] = useState('');       // anchor: today's shift date
+  const [selectedDate, setSelectedDate] = useState('');    // primary nav state
   const [detailDate, setDetailDate] = useState('');
   const [settings, setSettings] = useState(null);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+
+  // Derived: viewMonth = YYYY-MM from selectedDate
+  const viewMonth = selectedDate ? selectedDate.substring(0, 7) : '';
+  const isCurrentMonth = viewMonth === reportDate.substring(0, 7);
+
+  // Ref for auto-scroll to selected date row
+  const selectedDateRowRef = useRef(null);
   
   // Selection state
   const [selectedDeptId, setSelectedDeptId] = useState('');
@@ -41,6 +53,18 @@ export default function DataEntryPage() {
   const [saving, setSaving] = useState({});
   const [toast, setToast] = useState(null);
   const [diseaseCatalog, setDiseaseCatalog] = useState([]);
+
+  // Ref to always access latest monthReports (avoids stale closure in handleAutoSaveRow)
+  const monthReportsRef = useRef(monthReports);
+
+  // Wrapper that keeps the ref in sync synchronously before React commits
+  const updateMonthReports = useCallback((updater) => {
+    setMonthReports((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      monthReportsRef.current = next;
+      return next;
+    });
+  }, []);
 
   const showToast = useCallback((msg, type = 'success') => {
     setToast({ msg, type });
@@ -62,6 +86,7 @@ export default function DataEntryPage() {
         setSettings(settingsData);
         const today = getCurrentReportDate(settingsData.autoLockHour);
         setReportDate(today);
+        setSelectedDate(today);
         setDetailDate(today);
 
         // Fetch disease catalog separately so a failure doesn't block other data
@@ -106,30 +131,45 @@ export default function DataEntryPage() {
     initApp();
   }, [user, showToast]);
 
-  // 2. Fetch data for selected department and month
+  // 2. Fetch data for selected department and month (triggered by viewMonth change)
   useEffect(() => {
     async function fetchMonthData() {
-      if (!selectedDeptId || !reportDate) return;
+      if (!selectedDeptId || !selectedDate || !reportDate) return;
       setDataLoading(true);
       try {
         const deptIdx = departments.findIndex(d => d.id === selectedDeptId);
         if (deptIdx === -1) return;
         const dept = departments[deptIdx];
-        
-        // Ensure all days up to today exist
-        await initializeDepartmentReportsForMonth(reportDate, dept);
-        
-        // Fetch the whole month
-        const days = getDaysInMonthUpTo(reportDate);
+
+        // Determine which days to show
+        const currentYM = reportDate.substring(0, 7);
+        const selectedYM = selectedDate.substring(0, 7);
+        let days;
+
+        if (selectedYM === currentYM) {
+          // Current month: only up to today
+          days = getDaysInMonthUpTo(reportDate);
+        } else {
+          // Past month: show all days
+          days = getAllDaysInMonth(selectedYM);
+        }
+
+        // Init safeguard: only create missing docs for ≤3 months ago
+        const threeMonthsAgo = format(subMonths(new Date(), 3), 'yyyy-MM');
+        const endDate = days[days.length - 1];
+        if (selectedYM >= threeMonthsAgo) {
+          await initializeDepartmentReportsForMonth(endDate, dept);
+        }
+
         setDaysInMonth(days);
-        
+
         if (days.length > 0) {
-          const fetchedReports = await getReportsByDepartment(selectedDeptId, days[0], reportDate);
+          const fetchedReports = await getReportsByDepartment(selectedDeptId, days[0], days[days.length - 1]);
           const reportsDict = {};
           fetchedReports.forEach(r => {
             reportsDict[r.date] = r;
           });
-          setMonthReports(reportsDict);
+          updateMonthReports(reportsDict);
         }
       } catch (err) {
         console.error('Fetch month data error:', err);
@@ -139,7 +179,53 @@ export default function DataEntryPage() {
       }
     }
     fetchMonthData();
-  }, [selectedDeptId, reportDate, departments, showToast]);
+  }, [selectedDeptId, viewMonth, departments, reportDate, showToast]);
+
+  // 3. Auto-scroll to selected date row after data loads
+  useEffect(() => {
+    if (!dataLoading && selectedDateRowRef.current) {
+      selectedDateRowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [dataLoading, selectedDate]);
+
+  // --- Navigation handlers ---
+  const handlePrevMonth = useCallback(() => {
+    const current = parse(selectedDate, 'yyyy-MM-dd', new Date());
+    const prev = subMonths(current, 1);
+    const prevYM = format(prev, 'yyyy-MM');
+    const newDate = clampDateToMonth(selectedDate, prevYM);
+    setSelectedDate(newDate);
+    setDetailDate(newDate);
+  }, [selectedDate]);
+
+  const handleNextMonth = useCallback(() => {
+    const current = parse(selectedDate, 'yyyy-MM-dd', new Date());
+    const next = addMonths(current, 1);
+    const nextYM = format(next, 'yyyy-MM');
+    const currentYM = reportDate.substring(0, 7);
+    // Block navigating past current month
+    if (nextYM > currentYM) return;
+    const newDate = nextYM === currentYM
+      ? reportDate  // Snap to today if entering current month
+      : clampDateToMonth(selectedDate, nextYM);
+    setSelectedDate(newDate);
+    setDetailDate(newDate);
+  }, [selectedDate, reportDate]);
+
+  const handleGoToday = useCallback(() => {
+    setSelectedDate(reportDate);
+    setDetailDate(reportDate);
+  }, [reportDate]);
+
+  const handleSelectDate = useCallback((jsDate) => {
+    if (!jsDate) return;
+    const dateStr = format(jsDate, 'yyyy-MM-dd');
+    // Block future dates
+    if (dateStr > reportDate) return;
+    setSelectedDate(dateStr);
+    setDetailDate(dateStr);
+    setCalendarOpen(false);
+  }, [reportDate]);
 
   const handleDeptSelect = (val) => {
     setSelectedDeptId(val);
@@ -150,7 +236,7 @@ export default function DataEntryPage() {
     const isStringField = field === 'shiftName';
     const finalValue = isStringField ? value : (value === '' ? 0 : parseInt(value, 10) || 0);
 
-    setMonthReports((prev) => {
+    updateMonthReports((prev) => {
       const newState = { ...prev };
       const prevReport = newState[date] || {};
       const updated = { ...prevReport, [field]: finalValue };
@@ -183,7 +269,7 @@ export default function DataEntryPage() {
         finalValue = value === '' ? 0 : parseInt(value, 10) || 0;
     }
 
-    setMonthReports((prev) => {
+    updateMonthReports((prev) => {
       const newState = { ...prev };
       const prevReport = newState[date] || {};
       const newInfectious = [...(prevReport.infectiousData || [])];
@@ -244,7 +330,7 @@ export default function DataEntryPage() {
   };
 
   const handleAddDisease = (date) => {
-    setMonthReports((prev) => {
+    updateMonthReports((prev) => {
       const newState = { ...prev };
       const prevReport = newState[date] || {};
       const newInfectious = [...(prevReport.infectiousData || [])];
@@ -259,7 +345,7 @@ export default function DataEntryPage() {
   };
 
   const handleRemoveDisease = (date, idx) => {
-    setMonthReports((prev) => {
+    updateMonthReports((prev) => {
       const newState = { ...prev };
       const prevReport = newState[date] || {};
       const newInfectious = [...(prevReport.infectiousData || [])];
@@ -285,7 +371,8 @@ export default function DataEntryPage() {
   };
 
   const handleAutoSaveRow = async (date) => {
-    const report = monthReports[date];
+    // Use ref to get latest state (avoids stale closure after setMonthReports)
+    const report = monthReportsRef.current[date];
     if (!report || !canEdit(report, date)) return;
 
     // Block save if BN hiện tại is negative
@@ -363,7 +450,7 @@ export default function DataEntryPage() {
       fetchedReports.forEach(r => {
         reportsDict[r.date] = r;
       });
-      setMonthReports(reportsDict);
+      updateMonthReports(reportsDict);
       
     } catch (err) {
       showToast('Lỗi lưu: ' + err.message, 'error');
@@ -435,7 +522,7 @@ export default function DataEntryPage() {
       fetchedReports.forEach(r => {
         reportsDict[r.date] = r;
       });
-      setMonthReports(reportsDict);
+      updateMonthReports(reportsDict);
       
     } catch (err) {
       showToast('Lỗi lưu hàng loạt: ' + err.message, 'error');
@@ -544,6 +631,58 @@ export default function DataEntryPage() {
               </SelectGroup>
             </SelectContent>
           </Select>
+          {/* Date Navigation Controls */}
+          <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-1 py-0.5 shadow-sm">
+            <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-600 hover:text-slate-900" onClick={handlePrevMonth} title="Tháng trước">
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+
+            <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" className="h-8 px-3 text-sm font-semibold text-slate-800 hover:bg-slate-100 gap-1.5">
+                  <CalendarDays className="w-4 h-4 text-blue-600" />
+                  <span className="capitalize">
+                    {selectedDate ? (() => {
+                      const d = parse(selectedDate, 'yyyy-MM-dd', new Date());
+                      return `Tháng ${format(d, 'MM/yyyy')}`;
+                    })() : '—'}
+                  </span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="center">
+                <Calendar
+                  mode="single"
+                  selected={selectedDate ? parse(selectedDate, 'yyyy-MM-dd', new Date()) : undefined}
+                  onSelect={handleSelectDate}
+                  disabled={(date) => date > parse(reportDate, 'yyyy-MM-dd', new Date())}
+                  defaultMonth={selectedDate ? parse(selectedDate, 'yyyy-MM-dd', new Date()) : new Date()}
+                />
+              </PopoverContent>
+            </Popover>
+
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-slate-600 hover:text-slate-900 disabled:opacity-30"
+              onClick={handleNextMonth}
+              disabled={isCurrentMonth}
+              title="Tháng sau"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
+
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-sm border-blue-200 text-blue-700 hover:bg-blue-50 gap-1.5 disabled:opacity-40"
+            onClick={handleGoToday}
+            disabled={selectedDate === reportDate}
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            Hôm nay
+          </Button>
+
           <Button 
             onClick={handleSaveAll}
             disabled={Object.values(saving).some(s => s) || !daysInMonth.some(d => canEdit(monthReports[d], d))}
@@ -552,9 +691,6 @@ export default function DataEntryPage() {
             <Save className="w-4 h-4 mr-2" />
             Lưu tất cả
           </Button>
-          <Badge variant="secondary" className="px-3 py-1.5 text-sm font-medium bg-blue-50 text-blue-700 border-blue-100">
-            Tháng {reportDate.substring(5, 7)}/{reportDate.substring(0, 4)}
-          </Badge>
         </div>
       </div>
 
@@ -602,10 +738,17 @@ export default function DataEntryPage() {
                     const filledDeathRows = getFilledDeathRowsCount(dateStr);
                     const tuVongVal = report.tuVong || 0;
                     const isDeathWarning = tuVongVal > filledDeathRows;
+                    const isSelectedDateRow = dateStr === selectedDate;
                     const rowClass = editable ? 'bg-yellow-50/50 group hover:bg-yellow-100/50 focus-within:bg-blue-100 focus-within:hover:bg-blue-100 transition-colors' : 'bg-slate-50 text-slate-500';
 
                     return (
-                      <tr key={dateStr} onClick={() => setDetailDate(dateStr)} className={`${rowClass} border-b border-slate-200 cursor-pointer ${detailDate === dateStr ? 'bg-blue-50/30' : ''}`}>
+                      <tr
+                        key={dateStr}
+                        ref={isSelectedDateRow ? selectedDateRowRef : null}
+                        onClick={() => setDetailDate(dateStr)}
+                        className={`${rowClass} border-b border-slate-200 cursor-pointer ${detailDate === dateStr ? 'bg-blue-50/30' : ''} ${isSelectedDateRow ? '!bg-blue-50/60' : ''}`}
+                        style={isSelectedDateRow ? { boxShadow: 'inset 3px 0 0 0 #3b82f6' } : {}}
+                      >
                         <td className={`w-10 px-1 py-2 border-r border-slate-100 text-center sticky left-0 z-10 ${editable ? (detailDate === dateStr ? 'bg-blue-50 shadow-[inset_2px_0_0_0_#60a5fa,inset_0_2px_0_0_#60a5fa,inset_0_-2px_0_0_#60a5fa]' : 'bg-[#fffbeb] group-hover:bg-[#fef3c7] group-focus-within:bg-blue-100') : 'bg-slate-50'}`}>
                           <div className={`mx-auto flex items-center justify-center w-6 h-6 rounded-sm transition-colors ${explicitlyLocked ? 'text-slate-400' : autoLocked ? 'text-orange-400' : 'text-blue-400'}`} title={explicitlyLocked ? "Đã khóa (Thủ công)" : autoLocked ? "Khóa tự động" : "Đang mở"}>
                             {explicitlyLocked || autoLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
@@ -749,7 +892,7 @@ export default function DataEntryPage() {
             <CardContent className="p-0 flex-1 overflow-hidden flex flex-col h-full relative">
               <DeathReportTab
                 monthReports={monthReports}
-                setMonthReports={setMonthReports}
+                setMonthReports={updateMonthReports}
                 detailDate={detailDate}
                 selectedDeptId={selectedDeptId}
                 settings={settings}

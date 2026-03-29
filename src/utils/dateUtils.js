@@ -1,4 +1,4 @@
-import { format, subDays, parse, isAfter, isBefore, startOfDay, addHours, startOfMonth, eachDayOfInterval } from 'date-fns';
+import { format, subDays, parse, isAfter, isBefore, startOfDay, addHours, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
 
 const DATE_FORMAT = 'yyyy-MM-dd';
 
@@ -23,6 +23,27 @@ export function getDaysInMonthUpTo(dateStr) {
   const end = parse(dateStr, DATE_FORMAT, new Date());
   const start = startOfMonth(end);
   return eachDayOfInterval({ start, end }).map(d => format(d, DATE_FORMAT));
+}
+
+/**
+ * Get ALL days in the month containing the given YYYY-MM string.
+ */
+export function getAllDaysInMonth(yearMonth) {
+  const start = parse(`${yearMonth}-01`, DATE_FORMAT, new Date());
+  const end = endOfMonth(start);
+  return eachDayOfInterval({ start, end }).map(d => format(d, DATE_FORMAT));
+}
+
+/**
+ * Move a date (YYYY-MM-DD) to a target month (YYYY-MM),
+ * clamping the day if it doesn't exist (e.g. 31 → 28).
+ */
+export function clampDateToMonth(dateStr, targetYearMonth) {
+  const day = parseInt(dateStr.substring(8, 10), 10);
+  const target = parse(`${targetYearMonth}-01`, DATE_FORMAT, new Date());
+  const lastDay = endOfMonth(target).getDate();
+  const clampedDay = Math.min(day, lastDay);
+  return `${targetYearMonth}-${String(clampedDay).padStart(2, '0')}`;
 }
 
 /**

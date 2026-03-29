@@ -9,6 +9,7 @@ import {
   writeBatch,
   serverTimestamp,
   orderBy,
+  onSnapshot,
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { REPORT_STATUS, DEFAULT_INPATIENT_VALUES } from '../utils/constants';
@@ -604,4 +605,35 @@ export async function importReports(departmentId, departmentName, facilityId, re
   }
 
   return sortedRecords.length;
+}
+
+/**
+ * Real-time listener: reports for a specific date.
+ * Returns an unsubscribe function.
+ */
+export function onReportsByDate(dateStr, callback) {
+  const q = query(
+    collection(db, 'dailyReports'),
+    where('date', '==', dateStr),
+    orderBy('departmentName')
+  );
+  return onSnapshot(q, (snap) => {
+    callback(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+  });
+}
+
+/**
+ * Real-time listener: reports for a date range.
+ * Returns an unsubscribe function.
+ */
+export function onReportsByDateRange(startDate, endDate, callback) {
+  const q = query(
+    collection(db, 'dailyReports'),
+    where('date', '>=', startDate),
+    where('date', '<=', endDate),
+    orderBy('date')
+  );
+  return onSnapshot(q, (snap) => {
+    callback(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+  });
 }

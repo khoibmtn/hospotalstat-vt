@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { getReportsByDateRange, getReportsByDepartment } from '../services/reportService';
 import { getDepartments, getFacilities } from '../services/departmentService';
 import { getDiseaseCatalog } from '../services/diseaseCatalogService';
+import { getSettings } from '../services/settingsService';
 import { aggregateRows } from '../utils/computedColumns';
 import { format, parse, subDays, startOfMonth } from 'date-fns';
 import { formatDisplayDate } from '../utils/dateUtils';
@@ -17,6 +18,7 @@ import { PieChart, CalendarDays } from 'lucide-react';
 import KCBOverviewTable from '../components/summary/KCBOverviewTable';
 import KCBDetailTable from '../components/summary/KCBDetailTable';
 import InfectiousPanel from '../components/summary/InfectiousPanel';
+import DeathListPanel from '../components/summary/DeathListPanel';
 
 const DATE_FMT = 'yyyy-MM-dd';
 
@@ -31,15 +33,17 @@ export default function SummaryPage() {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
   const [diseaseCatalog, setDiseaseCatalog] = useState([]);
+  const [settings, setSettings] = useState({});
   const fetchRef = useRef(0);
 
   // Load facilities & departments on mount
   useEffect(() => {
     async function loadConfig() {
-      const [facs, depts, catalog] = await Promise.all([getFacilities(), getDepartments(), getDiseaseCatalog()]);
+      const [facs, depts, catalog, sets] = await Promise.all([getFacilities(), getDepartments(), getDiseaseCatalog(), getSettings()]);
       setFacilities(facs);
       setDepartments(depts);
       setDiseaseCatalog(catalog);
+      setSettings(sets);
     }
     loadConfig();
   }, []);
@@ -271,6 +275,9 @@ export default function SummaryPage() {
           <TabsTrigger value="btn" className="text-xs md:text-sm gap-1 data-[state=active]:bg-amber-50 data-[state=active]:text-amber-700">
             🦠 Bệnh truyền nhiễm
           </TabsTrigger>
+          <TabsTrigger value="deathlist" className="text-xs md:text-sm gap-1 data-[state=active]:bg-slate-200 data-[state=active]:text-slate-800">
+            ☠️ <span className="hidden sm:inline">Danh sách</span> tử vong
+          </TabsTrigger>
         </TabsList>
 
         <Card className="flex-1 overflow-hidden shadow-sm border-slate-200 flex flex-col bg-white mt-3">
@@ -302,6 +309,14 @@ export default function SummaryPage() {
                 loading={loading}
                 selectedDept={selectedDept}
                 diseaseCatalog={diseaseCatalog}
+              />
+            </TabsContent>
+
+            <TabsContent value="deathlist" className="m-0 flex-1 overflow-hidden flex flex-col data-[state=inactive]:hidden">
+              <DeathListPanel
+                reports={rawReports}
+                loading={loading}
+                columns={settings.deathReportColumns}
               />
             </TabsContent>
           </CardContent>

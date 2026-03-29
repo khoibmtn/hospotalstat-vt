@@ -1,5 +1,42 @@
 # Session Notes
 
+## Session 2026-03-29
+
+### What was done
+- **Dashboard Command Center Redesign (`DashboardPage.jsx`)**
+  - Restructured KPI cards: BN hiện tại (+delta), BN mới, Tử vong (clickable), B. Truyền nhiễm (side-by-side with disease list)
+  - BTN card: compact disease list with daily deltas (`Tên X (+n)` — red increase, green decrease)
+  - Collapsible trend chart (click header to toggle)
+  - Dropdown filter: Toàn viện / Cơ sở / Khoa for trend chart
+  - Department table with facility grouping, bold subtotals, toggleable "Tua trực" column
+  - Facility subtotal rows (Cơ sở 1, Cơ sở 2) + grand total row
+- **Real-time Firestore Listeners**
+  - Added `onReportsByDate()` and `onReportsByDateRange()` to `reportService.js` using `onSnapshot`
+  - Replaced one-time `getDocs` in DashboardPage with 3 live listeners (today, yesterday, trend)
+  - Dashboard auto-updates when any department submits data without page reload
+  - Proper cleanup with unsubscribe callbacks on unmount/date change
+- **DataEntryPage Improvements**
+  - Death tab badge indicator, month navigation arrows, summary page month nav
+
+### Decisions made
+- **onSnapshot over polling**: Firestore real-time listeners chosen over interval polling — lower latency, no wasted reads, cleaner code
+- **3 independent listeners** vs 1 big listener: Each data slice (today, yesterday, trend) has its own listener for targeted updates
+- **BTN card side-by-side layout**: Disease list on the right prevents vertical expansion; total on the left for quick scan
+- **Collapsible trend chart**: Saves vertical space during briefings when chart isn't needed
+
+### Pending items
+- `tuaTruc` field data entry flow (placeholder in table, data capture not yet in DataEntryPage)
+- TV mode auto-scroll for large department tables
+
+### Key files modified
+- `src/pages/DashboardPage.jsx` — Full redesign: KPI cards, BTN card, trend chart, dept table, real-time listeners
+- `src/services/reportService.js` — Added `onReportsByDate()`, `onReportsByDateRange()` with `onSnapshot`
+- `src/pages/DataEntryPage.jsx` — Death tab integration, month nav improvements
+- `src/pages/SettingsPage.jsx` — Death report column config improvements
+- `src/pages/SummaryPage.jsx` — Month navigation
+- `src/components/layout/AppShell.jsx` — Navigation updates
+- `src/utils/dateUtils.js` — Date utility additions
+
 ## Session 2026-03-28/29
 
 ### What was done
