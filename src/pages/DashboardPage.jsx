@@ -40,12 +40,20 @@ export default function DashboardPage() {
   const [yesterdayReports, setYesterdayReports] = useState([]);
   const [trendData, setTrendData] = useState([]);
   const [trendFilter, setTrendFilter] = useState('__all__');
+  const [trendRange, setTrendRange] = useState(7);
   const [departments, setDepartments] = useState([]);
   const [facilities, setFacilities] = useState([]);
   const [diseaseCatalog, setDiseaseCatalog] = useState([]);
   const [loading, setLoading] = useState(true);
   const [trendOpen, setTrendOpen] = useState(true);
   const [showTuaTruc, setShowTuaTruc] = useState(false);
+
+  const TREND_RANGES = [
+    { label: '1 tuần', days: 7 },
+    { label: '2 tuần', days: 14 },
+    { label: '1 tháng', days: 30 },
+    { label: '1 quý', days: 90 },
+  ];
 
   const isToday = selectedDate === getToday();
 
@@ -60,6 +68,11 @@ export default function DashboardPage() {
     }
     loadConfig();
   }, []);
+
+  // Auto-collapse trend chart when entering TV mode
+  useEffect(() => {
+    setTrendOpen(!isTvMode);
+  }, [isTvMode]);
 
   // Build trend data from raw range reports
   const buildTrend = useCallback((rangeReports) => {
@@ -115,7 +128,7 @@ export default function DashboardPage() {
     };
 
     const yesterdayStr = format(subDays(parse(selectedDate, DATE_FMT, new Date()), 1), DATE_FMT);
-    const trendStart = format(subDays(parse(selectedDate, DATE_FMT, new Date()), 6), DATE_FMT);
+    const trendStart = format(subDays(parse(selectedDate, DATE_FMT, new Date()), trendRange - 1), DATE_FMT);
 
     const unsub1 = onReportsByDate(selectedDate, (reports) => {
       setTodayReports(reports);
@@ -136,7 +149,7 @@ export default function DashboardPage() {
     });
 
     return () => { unsub1(); unsub2(); unsub3(); };
-  }, [selectedDate, departments.length, buildTrend]);
+  }, [selectedDate, departments.length, buildTrend, trendRange]);
 
   // ─── Computed data ──────────────────────────────────
   const totals = useMemo(() => aggregateDeptSummaries(todayReports), [todayReports]);
@@ -283,10 +296,10 @@ export default function DashboardPage() {
   const tvClass = isTvMode ? 'tv-mode' : '';
 
   return (
-    <div className={`flex flex-col h-full bg-slate-50/50 p-4 md:p-6 pb-24 overflow-x-hidden ${tvClass}`}>
+    <div className={`flex flex-col h-full bg-slate-50/50 ${isTvMode ? 'p-3' : 'p-4 md:p-6 pb-24'} overflow-x-hidden ${tvClass}`}>
 
       {/* ─── HEADER ─── */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between mb-5 gap-3 shrink-0">
+      <div className={`flex flex-col md:flex-row md:items-center justify-between ${isTvMode ? 'mb-2' : 'mb-5'} gap-3 shrink-0`}>
         <div className="flex items-center gap-3">
           <LayoutDashboard className={`text-blue-600 ${isTvMode ? 'w-8 h-8' : 'w-6 h-6'}`} />
           <h1 className={`font-bold tracking-tight text-slate-900 ${isTvMode ? 'text-3xl' : 'text-2xl'}`}>
@@ -337,7 +350,15 @@ export default function DashboardPage() {
       </div>
 
       {/* ─── CONTENT ─── */}
-      <div className="flex-1 overflow-auto flex flex-col gap-5">
+      <div
+        className="flex-1 overflow-y-auto"
+        style={isTvMode ? { scrollSnapType: 'y mandatory' } : {}}
+      >
+        {/* ── Section 1: KPI + Trend ── */}
+        <div
+          className={isTvMode ? 'h-full flex flex-col gap-3 pb-1' : 'flex flex-col gap-5'}
+          style={isTvMode ? { scrollSnapAlign: 'start' } : {}}
+        >
 
         {/* ═══ KPI ROW: 4 COMPACT CARDS ═══ */}
         <div className={`grid gap-3 shrink-0 ${totalBTN > 0
@@ -527,12 +548,30 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between flex-wrap gap-2">
               <CardTitle className={`font-semibold text-slate-800 flex items-center gap-2 ${isTvMode ? 'text-lg' : 'text-base'}`}>
                 {trendOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-                Xu hướng 7 ngày {trendFilter !== '__all__' && `— ${selectedDeptName}`}
+                Xu hướng {TREND_RANGES.find(r => r.days === trendRange)?.label ?? `${trendRange} ngày`}
+                {trendFilter !== '__all__' && ` — ${selectedDeptName}`}
               </CardTitle>
               {trendOpen && (
-                <div onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                  {/* Range selector */}
+                  <div className="flex items-center rounded-lg border border-slate-200 overflow-hidden bg-white">
+                    {TREND_RANGES.map((r) => (
+                      <button
+                        key={r.days}
+                        onClick={() => setTrendRange(r.days)}
+                        className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                          trendRange === r.days
+                            ? 'bg-blue-600 text-white'
+                            : 'text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        {r.label}
+                      </button>
+                    ))}
+                  </div>
+                  {/* Dept filter */}
                   <Select value={trendFilter} onValueChange={setTrendFilter}>
-                    <SelectTrigger className="w-[200px] h-8 text-xs">
+                    <SelectTrigger className="w-[180px] h-8 text-xs">
                       <SelectValue placeholder="Toàn viện" />
                     </SelectTrigger>
                     <SelectContent>
@@ -564,7 +603,14 @@ export default function DashboardPage() {
                 <ResponsiveContainer width="100%" height={isTvMode ? 360 : 280}>
                   <LineChart data={filteredTrendData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                    <XAxis dataKey="date" fontSize={isTvMode ? 14 : 12} stroke="#64748b" tickLine={false} axisLine={false} />
+                    <XAxis
+                      dataKey="date"
+                      fontSize={isTvMode ? 14 : 12}
+                      stroke="#64748b"
+                      tickLine={false}
+                      axisLine={false}
+                      interval={trendRange <= 7 ? 0 : trendRange <= 14 ? 1 : trendRange <= 30 ? 4 : 'preserveStartEnd'}
+                    />
                     <YAxis fontSize={isTvMode ? 14 : 12} stroke="#64748b" tickLine={false} axisLine={false} />
                     <Tooltip
                       contentStyle={{
@@ -577,9 +623,21 @@ export default function DashboardPage() {
                       }}
                     />
                     <Legend iconType="circle" wrapperStyle={{ paddingTop: '12px' }} />
-                    <Line type="monotone" dataKey="bnHienTai" name="BN hiện tại" stroke="#2563eb" strokeWidth={3} dot={{ r: 4, strokeWidth: 2, fill: '#fff' }} activeDot={{ r: 6, fill: '#2563eb' }} />
-                    <Line type="monotone" dataKey="vaoVien" name="Vào viện" stroke="#10b981" strokeWidth={2} dot={{ r: 3, fill: '#fff' }} />
-                    <Line type="monotone" dataKey="raVien" name="Ra viện" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3, fill: '#fff' }} />
+                    <Line
+                      type="monotone" dataKey="bnHienTai" name="BN hiện tại" stroke="#2563eb" strokeWidth={trendRange > 14 ? 2 : 3}
+                      dot={trendRange > 14 ? false : { r: 4, strokeWidth: 2, fill: '#fff' }}
+                      activeDot={{ r: 5, fill: '#2563eb' }}
+                    />
+                    <Line
+                      type="monotone" dataKey="vaoVien" name="Vào viện" stroke="#10b981" strokeWidth={2}
+                      dot={trendRange > 14 ? false : { r: 3, fill: '#fff' }}
+                      activeDot={{ r: 4, fill: '#10b981' }}
+                    />
+                    <Line
+                      type="monotone" dataKey="raVien" name="Ra viện" stroke="#f59e0b" strokeWidth={2}
+                      dot={trendRange > 14 ? false : { r: 3, fill: '#fff' }}
+                      activeDot={{ r: 4, fill: '#f59e0b' }}
+                    />
                   </LineChart>
                 </ResponsiveContainer>
               ) : (
@@ -590,9 +648,14 @@ export default function DashboardPage() {
             </CardContent>
           )}
         </Card>
+        </div>{/* end Section 1: KPI + Trend */}
 
-        {/* ═══ FACILITY-GROUPED TABLE ═══ */}
-        <Card className="shadow-sm border-slate-200 shrink-0">
+        {/* ── Section 2: Table full-screen in TV, stacked in normal ── */}
+        <div
+          className={isTvMode ? 'h-full flex flex-col' : ''}
+          style={isTvMode ? { scrollSnapAlign: 'start' } : {}}
+        >
+          <Card className="shadow-sm border-slate-200 flex-1 min-h-0">
           <CardHeader className="py-3 px-4 border-b border-slate-100 bg-slate-50/50">
             <div className="flex items-center justify-between">
               <CardTitle className={`font-semibold text-slate-800 ${isTvMode ? 'text-lg' : 'text-base'}`}>
@@ -611,19 +674,19 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent className="p-0 bg-white rounded-b-xl overflow-hidden">
             <div className="overflow-x-auto">
-              <table className={`w-full text-left border-collapse tabular-nums ${isTvMode ? 'text-base' : 'text-sm'}`}>
-                <thead className={`text-white uppercase bg-blue-600 ${isTvMode ? 'text-sm' : 'text-xs'}`}>
+              <table className={`${isTvMode ? 'w-auto' : 'w-full'} text-left border-collapse tabular-nums text-sm`}>
+                <thead className="text-white uppercase bg-blue-600 text-xs">
                   <tr>
-                    <th className="px-4 py-3 font-semibold border-r border-blue-500 min-w-[180px]">Khoa</th>
+                    <th className={`px-3 ${isTvMode ? 'py-1.5' : 'py-3'} font-semibold border-r border-blue-500 ${isTvMode ? 'w-[120px]' : 'min-w-[180px]'}`}>Khoa</th>
                     {showTuaTruc && (
-                      <th className="px-3 py-3 font-semibold border-r border-blue-500 min-w-[120px]">Tua trực</th>
+                      <th className={`px-3 ${isTvMode ? 'py-1.5' : 'py-3'} font-semibold border-r border-blue-500 ${isTvMode ? 'w-[90px]' : 'min-w-[90px]'}`}>Tua trực</th>
                     )}
                     {INPATIENT_FIELDS.map((f) => (
-                      <th key={f.key} className="px-2 py-3 font-semibold border-r border-blue-500 min-w-[70px] text-center">
+                      <th key={f.key} className={`px-2 ${isTvMode ? 'py-1.5' : 'py-3'} font-semibold border-r border-blue-500 ${isTvMode ? 'w-[72px]' : 'min-w-[70px]'} text-center`}>
                         {f.label}
                       </th>
                     ))}
-                    <th className="px-2 py-3 font-semibold min-w-[60px] text-center">Trạng thái</th>
+                    <th className={`px-2 ${isTvMode ? 'py-1.5' : 'py-3'} font-semibold ${isTvMode ? 'w-[60px]' : 'min-w-[60px]'} text-center`}>Trạng thái</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -638,7 +701,7 @@ export default function DashboardPage() {
                         <tr className="bg-slate-100 border-b-2 border-slate-200">
                           <td
                             colSpan={INPATIENT_FIELDS.length + 2 + (showTuaTruc ? 1 : 0)}
-                            className="px-4 py-2 font-bold text-slate-700 uppercase tracking-wide text-xs"
+                            className={`px-4 ${isTvMode ? 'py-1' : 'py-2'} font-bold text-slate-700 uppercase tracking-wide text-xs`}
                           >
                             🏗️ {group.name}
                           </td>
@@ -655,25 +718,29 @@ export default function DashboardPage() {
                                   : 'bg-red-50/40 hover:bg-red-50'
                               }`}
                             >
-                              <td className="px-4 py-2 font-medium border-r border-slate-200 whitespace-nowrap text-slate-800">
+                              <td className={`px-3 ${isTvMode ? 'py-0.5' : 'py-2'} font-medium border-r border-slate-200 whitespace-nowrap text-slate-800`}>
                                 {dept.name}
                               </td>
                               {showTuaTruc && (
-                                <td className="px-3 py-2 border-r border-slate-200 text-slate-600 text-xs whitespace-nowrap">
+                                <td className={`px-3 ${isTvMode ? 'py-0.5' : 'py-2'} border-r border-slate-200 text-slate-600 text-xs whitespace-nowrap`}>
                                   {r?.tuaTruc || '—'}
                                 </td>
                               )}
                               {INPATIENT_FIELDS.map((f) => (
                                 <td
                                   key={f.key}
-                                  className={`px-2 py-2 border-r border-slate-100 text-center align-middle ${
+                                  className={`px-2 ${isTvMode ? 'py-0.5' : 'py-2'} border-r border-slate-100 text-center align-middle ${
                                     f.computed ? 'font-semibold text-blue-700 bg-blue-50/30' : ''
                                   } ${f.key === 'tuVong' && r && r.tuVong > 0 ? 'text-red-600 font-bold bg-red-50' : ''}`}
                                 >
-                                  {hasReport ? (r[f.key] ?? 0) : '—'}
+                                  {hasReport ? (
+                                    <span className={(r[f.key] ?? 0) === 0 ? 'text-slate-400' : ''}>
+                                      {r[f.key] ?? 0}
+                                    </span>
+                                  ) : '—'}
                                 </td>
                               ))}
-                              <td className="px-2 py-2 text-center">
+                              <td className={`px-2 ${isTvMode ? 'py-0.5' : 'py-2'} text-center`}>
                                 {hasReport ? (
                                   <span className="text-emerald-500 text-xs font-semibold">✓</span>
                                 ) : (
@@ -686,17 +753,24 @@ export default function DashboardPage() {
                           );
                         })}
                         {group.departments.length > 1 && (
-                          <tr className="bg-slate-200/80 font-bold border-b-2 border-slate-300">
-                            <td className="px-4 py-2.5 text-slate-700 border-r border-slate-300 text-xs uppercase tracking-wide">
+                          <tr className="bg-orange-50 font-bold border-b-2 border-orange-200">
+                            <td className={`px-3 ${isTvMode ? 'py-1' : 'py-2.5'} text-orange-700 border-r border-orange-200 text-xs uppercase tracking-wide`}>
                               ⮑ Tổng {group.name}
                             </td>
-                            {showTuaTruc && <td className="border-r border-slate-300" />}
+                            {showTuaTruc && <td className="border-r border-orange-200" />}
                             {INPATIENT_FIELDS.map((f) => (
-                              <td key={f.key} className="px-2 py-2.5 border-r border-slate-300 text-center text-slate-800 font-bold">
-                                {facTotals[f.key] ?? 0}
+                              <td
+                                key={f.key}
+                                className={`px-2 ${isTvMode ? 'py-1' : 'py-2.5'} border-r border-orange-200 text-center font-bold ${
+                                  f.key === 'tuVong' && facTotals.tuVong > 0 ? 'text-red-600' : 'text-orange-800'
+                                }`}
+                              >
+                                <span className={(facTotals[f.key] ?? 0) === 0 ? 'text-orange-300' : ''}>
+                                  {facTotals[f.key] ?? 0}
+                                </span>
                               </td>
                             ))}
-                            <td className="px-2 py-2.5 text-center text-xs text-slate-500 font-semibold">
+                            <td className={`px-2 ${isTvMode ? 'py-1' : 'py-2.5'} text-center text-xs text-orange-600 font-semibold`}>
                               {facReports.length}/{group.departments.length}
                             </td>
                           </tr>
@@ -707,21 +781,23 @@ export default function DashboardPage() {
 
                   {todayReports.length > 0 && (
                     <tr className="bg-blue-600 text-white font-black border-t-4 border-blue-700">
-                      <td className="px-4 py-3.5 border-r border-blue-500 whitespace-nowrap uppercase text-base tracking-wide">
+                      <td className={`px-3 ${isTvMode ? 'py-1.5' : 'py-3.5'} border-r border-blue-500 whitespace-nowrap uppercase ${isTvMode ? 'text-xs' : 'text-base'} tracking-wide`}>
                         TỔNG TOÀN VIỆN
                       </td>
                       {showTuaTruc && <td className="border-r border-blue-500" />}
                       {INPATIENT_FIELDS.map((f) => (
                         <td
                           key={f.key}
-                          className={`px-2 py-3.5 border-r border-blue-500 text-center text-base font-black ${
+                          className={`px-2 ${isTvMode ? 'py-1.5' : 'py-3.5'} border-r border-blue-500 text-center ${isTvMode ? 'text-xs' : 'text-base'} font-black ${
                             f.key === 'tuVong' && totals.tuVong > 0 ? 'text-red-200 bg-red-900/30' : ''
                           }`}
                         >
-                          {totals[f.key] ?? 0}
+                          <span className={(totals[f.key] ?? 0) === 0 && !(f.key === 'tuVong' && totals.tuVong > 0) ? 'text-blue-400' : ''}>
+                            {totals[f.key] ?? 0}
+                          </span>
                         </td>
                       ))}
-                      <td className="px-2 py-3.5 text-center text-sm text-blue-200 font-bold">
+                      <td className={`px-2 ${isTvMode ? 'py-1.5' : 'py-3.5'} text-center text-sm text-blue-200 font-bold`}>
                         {todayReports.length}/{activeDepts.length}
                       </td>
                     </tr>
@@ -739,7 +815,8 @@ export default function DashboardPage() {
             </div>
           </CardContent>
         </Card>
-      </div>
+        </div>{/* end Section 2 */}
+      </div>{/* end CONTENT */}
     </div>
   );
 }
