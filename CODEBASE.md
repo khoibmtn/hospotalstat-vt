@@ -118,6 +118,7 @@ src/
 - **TDZ crash**: Fixed white page caused by `const` functions defined after JSX that references them in AppShell
 - **Register page**: Separated `getSettings()` from `Promise.all` to prevent auth failure from blocking department loading
 - **Delete user confirm**: Fixed flashing dialog issue (from earlier session)
+- **Save race condition**: Fixed `onBlur` auto-save racing with manual save button click, causing double cascade that corrupted `bnCu` on subsequent days (e.g. 39 → 40). Added `isSavingManually` ref guard in DataEntryPage
 
 ---
 

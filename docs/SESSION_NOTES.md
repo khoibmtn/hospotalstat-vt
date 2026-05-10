@@ -11,6 +11,7 @@
 - **Summary Default Department**: Non-admin users default to their assigned department
 - **Bug Fixes**: TDZ crash in AppShell (const before use), register page Promise.all auth failure, Firestore rules for public settings read
 - **Stat Cards Toggle**: "Thẻ TK" button in KCB tab toolbar to show/hide right sidebar stat cards
+- **Save Race Condition Fix**: Fixed `onBlur` auto-save racing with save button click, causing double cascade that corrupted bnCu on subsequent days
 
 ### Decisions made
 - **Firestore settings → public read**: Required because unauthenticated users on Register/Login pages need to check `allowRegistration` setting
@@ -18,6 +19,7 @@
 - **Column resize approach**: State-based width tracking with document-level mousemove/mouseup for smooth cross-element dragging
 - **Password change**: Uses Firebase re-authentication flow (EmailAuthProvider.credential + reauthenticateWithCredential) before updatePassword
 - **Display format**: Percentages shown without parentheses when standalone (e.g. `86.7%`), with parentheses only when paired with absolute diff (e.g. `-6 (86.7%)`)
+- **Save guard approach**: `isSavingManually` ref flag set before `handleSaveRow`/`handleSaveAll`, checked by `handleAutoSaveRow` to skip — avoids double `saveReport` calls that create overlapping cascades
 
 ### Pending items
 - [ ] "Tách khoa/ghép khoa" bed plan logic — awaiting client specifications
