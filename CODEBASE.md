@@ -95,6 +95,7 @@ src/
 - **Color-coded columns**: BN còn lại (blue bg), GB KH (amber bg), Vào viện (blue text/bg), Tử vong (red text)
 - **High-contrast controls**: Font size, row height, tua trực, GB KH buttons with border-2, larger icons, bold text
 - **Resizable columns**: Drag-to-resize on all column headers via mousedown/mousemove handlers
+- **Stat cards toggle**: "Thẻ TK" button in KCB toolbar to show/hide the right sidebar stat cards (BN hiện tại, Vào viện, Ra viện, Tử vong, BTN)
 
 ### 3. Account Management
 - **Account dialog** in AppShell sidebar (click user name to open)

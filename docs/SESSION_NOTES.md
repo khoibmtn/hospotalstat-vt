@@ -10,6 +10,7 @@
 - **Account Settings Dialog**: Users can edit display name and change password from sidebar; nickname read-only
 - **Summary Default Department**: Non-admin users default to their assigned department
 - **Bug Fixes**: TDZ crash in AppShell (const before use), register page Promise.all auth failure, Firestore rules for public settings read
+- **Stat Cards Toggle**: "Thẻ TK" button in KCB tab toolbar to show/hide right sidebar stat cards
 
 ### Decisions made
 - **Firestore settings → public read**: Required because unauthenticated users on Register/Login pages need to check `allowRegistration` setting
