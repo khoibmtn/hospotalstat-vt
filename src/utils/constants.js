@@ -39,7 +39,7 @@ export const INPATIENT_FIELDS = [
   { key: 'raVien', label: 'Ra viện', editable: true },
   { key: 'tuVong', label: 'Tử vong', editable: true },
   { key: 'chuyenVien', label: 'Chuyển viện', editable: true },
-  { key: 'bnHienTai', label: 'BN hiện tại', editable: false, computed: true },
+  { key: 'bnHienTai', label: 'BN còn lại', editable: false, computed: true },
 ];
 
 export const DEFAULT_SETTINGS = {

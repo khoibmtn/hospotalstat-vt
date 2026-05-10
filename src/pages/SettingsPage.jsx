@@ -5,6 +5,7 @@ import { getFacilities, getDepartments, saveFacility, deleteFacility, saveDepart
 import { getDiseaseCatalog, addDisease, updateDiseaseName, updateDiseaseColor, updateDiseaseGroup, swapDiseaseOrder, deleteDisease, isDiseaseUsedInReports } from '../services/diseaseCatalogService';
 import { getAllUsers, updateUser, deleteUser as deleteUserService, resetUserPassword } from '../services/authService';
 import { importReports, getReportsByDateRange, deleteReportsBeforeDate, deleteAuditLogsBeforeDate, getStartDateBnCuByDept, backfillReportsForExpansion } from '../services/reportService';
+import { getBedPlans, saveBedPlan, deleteBedPlan, initBedPlans } from '../services/bedPlanService';
 import { ROLE_LABELS, ROLES, POSITIONS, TITLES } from '../utils/constants';
 import { exportReportsToExcel } from '../utils/excelUtils';
 import * as XLSX from 'xlsx';
@@ -19,7 +20,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 
-import { Settings, Building2, Layers, Users, Plus, Trash2, Edit2, ShieldAlert, KeyRound, Loader2, Save, X, ShieldCheck, Upload, ListChecks, Check, Lock, Unlock, Palette, ArrowUp, ArrowDown, Asterisk, ArrowRightLeft, CalendarClock, AlertTriangle, Download, ImagePlus } from 'lucide-react';
+import { Settings, Building2, Layers, Users, Plus, Trash2, Edit2, ShieldAlert, KeyRound, Loader2, Save, X, ShieldCheck, Upload, ListChecks, Check, Lock, Unlock, Palette, ArrowUp, ArrowDown, Asterisk, ArrowRightLeft, CalendarClock, AlertTriangle, Download, ImagePlus, BedDouble, Search } from 'lucide-react';
 import ImportDataModal from '../components/data-entry/ImportDataModal';
 
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -78,6 +79,17 @@ export default function SettingsPage() {
   const [syncing, setSyncing] = useState(false);
   const [iconUploading, setIconUploading] = useState(false);
   const [confirmDeleteUserId, setConfirmDeleteUserId] = useState(null);
+
+  // Bed Plans state
+  const [bedPlans, setBedPlans] = useState([]);
+  const [bedSearch, setBedSearch] = useState('');
+  const [bedFacilityFilter, setBedFacilityFilter] = useState('all');
+  const [editingBedId, setEditingBedId] = useState(null);
+  const [editingBed, setEditingBed] = useState({});
+  const [addingBed, setAddingBed] = useState(false);
+  const [newBed, setNewBed] = useState({ departmentId: '', beds: 10, startDate: '2026-01-01', endDate: '' });
+  const [confirmDeleteBedId, setConfirmDeleteBedId] = useState(null);
+  const [bedLoading, setBedLoading] = useState(false);
 
   // Death Report Columns state
   const DEFAULT_DEATH_REPORT_COLUMNS = [
@@ -576,10 +588,67 @@ export default function SettingsPage() {
     setDiseaseUsageCache(cache);
   }
 
+  // ── Bed plan handlers ──
+  async function loadBedPlans() {
+    setBedLoading(true);
+    try {
+      let plans = await getBedPlans();
+      if (plans.length === 0 && departments.length > 0) {
+        plans = await initBedPlans(departments);
+      }
+      setBedPlans(plans);
+    } catch (err) {
+      console.error('Load bed plans failed:', err);
+    } finally {
+      setBedLoading(false);
+    }
+  }
+
+  async function handleSaveBedPlan(id, data) {
+    await saveBedPlan(id, data);
+    setBedPlans((prev) => prev.map((b) => b.id === id ? { ...b, ...data } : b));
+    setEditingBedId(null);
+    showToast('Đã cập nhật giường KH');
+  }
+
+  async function handleDeleteBedPlan(id) {
+    await deleteBedPlan(id);
+    setBedPlans((prev) => prev.filter((b) => b.id !== id));
+    setConfirmDeleteBedId(null);
+    showToast('Đã xóa');
+  }
+
+  async function handleAddBedPlan() {
+    if (!newBed.departmentId) { showToast('Chọn khoa', 'error'); return; }
+    const dept = departments.find((d) => d.id === newBed.departmentId);
+    if (!dept) return;
+    const id = `bed_${dept.id}_${Date.now()}`;
+    const data = {
+      departmentId: dept.id,
+      departmentName: dept.name,
+      facilityId: dept.facilityId || '',
+      beds: parseInt(newBed.beds) || 10,
+      startDate: newBed.startDate || '2026-01-01',
+      endDate: newBed.endDate || '',
+    };
+    await saveBedPlan(id, data);
+    setBedPlans((prev) => [...prev, { id, ...data }].sort((a, b) => a.departmentName.localeCompare(b.departmentName)));
+    setNewBed({ departmentId: '', beds: 10, startDate: '2026-01-01', endDate: '' });
+    setAddingBed(false);
+    showToast('Đã thêm giường KH');
+  }
+
+  const filteredBedPlans = bedPlans.filter((b) => {
+    if (bedFacilityFilter !== 'all' && b.facilityId !== bedFacilityFilter) return false;
+    if (bedSearch && !b.departmentName?.toLowerCase().includes(bedSearch.toLowerCase())) return false;
+    return true;
+  });
+
   const tabs = [
     { key: 'general', label: 'Cấu hình chung', icon: <Settings className="w-4 h-4 mr-2" /> },
     { key: 'facilities', label: 'Cơ sở', icon: <Building2 className="w-4 h-4 mr-2" /> },
     { key: 'departments', label: 'Khoa', icon: <Layers className="w-4 h-4 mr-2" /> },
+    { key: 'beds', label: 'Giường KH', icon: <BedDouble className="w-4 h-4 mr-2" /> },
     { key: 'users', label: 'Người dùng', icon: <Users className="w-4 h-4 mr-2" /> },
     { key: 'catalog', label: 'Danh mục', icon: <ListChecks className="w-4 h-4 mr-2" /> },
   ];
@@ -671,8 +740,8 @@ export default function SettingsPage() {
       </div>
 
       <div className="flex-1 overflow-auto flex flex-col gap-6 max-w-6xl w-full mx-auto">
-        <Tabs value={tab} onValueChange={setTab} className="w-full flex-col flex h-full">
-          <TabsList className="grid w-full lg:w-max grid-cols-2 lg:grid-cols-5 bg-slate-100 p-1 rounded-lg shrink-0 mb-6">
+        <Tabs value={tab} onValueChange={(val) => { setTab(val); if (val === 'beds' && bedPlans.length === 0 && !bedLoading) loadBedPlans(); }} className="w-full flex-col flex h-full">
+          <TabsList className="grid w-full lg:w-max grid-cols-2 lg:grid-cols-6 bg-slate-100 p-1 rounded-lg shrink-0 mb-6">
             {tabs.map((t) => (
               <TabsTrigger 
                 key={t.key} 
@@ -1364,6 +1433,186 @@ export default function SettingsPage() {
                     </div>
                   )}
                 </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="beds" className="mt-0 focus-visible:outline-none flex-1">
+            <Card className="shadow-sm border-slate-200">
+              <CardHeader className="flex flex-row items-center justify-between border-b border-slate-100 bg-slate-50/50 py-4">
+                <div>
+                  <CardTitle className="text-lg font-semibold text-slate-800">Giường kế hoạch</CardTitle>
+                  <CardDescription>Quản lý số giường kế hoạch theo từng khoa và khoảng thời gian</CardDescription>
+                </div>
+                <Button onClick={() => setAddingBed(true)} className="bg-blue-600 hover:bg-blue-700 text-white" size="sm" disabled={addingBed}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Thêm
+                </Button>
+              </CardHeader>
+
+              <div className="p-4 bg-slate-50 border-b border-slate-100">
+                <div className="flex gap-3 items-center flex-wrap">
+                  <div className="relative max-w-xs flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <Input
+                      placeholder="Tìm khoa..."
+                      value={bedSearch}
+                      onChange={(e) => setBedSearch(e.target.value)}
+                      className="pl-9 focus-visible:ring-blue-500"
+                    />
+                  </div>
+                  <Select value={bedFacilityFilter} onValueChange={setBedFacilityFilter}>
+                    <SelectTrigger className="w-[160px] h-9 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Tất cả cơ sở</SelectItem>
+                      {facilities.map(f => (
+                        <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Badge variant="outline" className="text-slate-600">{filteredBedPlans.length} bản ghi</Badge>
+                </div>
+              </div>
+
+              <CardContent className="p-0 bg-white">
+                {bedLoading ? (
+                  <div className="flex items-center justify-center py-12 text-slate-500">
+                    <Loader2 className="w-5 h-5 mr-2 animate-spin" /> Đang tải...
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left border-collapse">
+                      <thead className="text-xs text-slate-600 uppercase bg-slate-50 border-b border-slate-200">
+                        <tr>
+                          <th className="px-3 py-3 font-semibold w-10 text-center">STT</th>
+                          <th className="px-4 py-3 font-semibold">Tên khoa</th>
+                          <th className="px-4 py-3 font-semibold text-center w-28">Số giường KH</th>
+                          <th className="px-4 py-3 font-semibold text-center w-36">Hiệu lực từ</th>
+                          <th className="px-4 py-3 font-semibold text-center w-36">Đến ngày</th>
+                          <th className="px-4 py-3 font-semibold text-center w-24">Trạng thái</th>
+                          <th className="px-4 py-3 font-semibold text-right w-32">Thao tác</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {addingBed && (
+                          <tr className="bg-blue-50/50 border-b border-blue-100">
+                            <td className="px-3 py-2.5 text-center text-slate-400">+</td>
+                            <td className="px-4 py-2.5">
+                              <Select value={newBed.departmentId} onValueChange={(val) => setNewBed(prev => ({ ...prev, departmentId: val }))}>
+                                <SelectTrigger className="h-8 text-sm w-full">
+                                  <SelectValue placeholder="Chọn khoa..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {departments.map(d => (
+                                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </td>
+                            <td className="px-4 py-2.5 text-center">
+                              <Input type="number" value={newBed.beds} onChange={(e) => setNewBed(prev => ({ ...prev, beds: e.target.value }))} className="h-8 w-20 text-center mx-auto text-sm" min={0} />
+                            </td>
+                            <td className="px-4 py-2.5 text-center">
+                              <Input type="date" value={newBed.startDate} onChange={(e) => setNewBed(prev => ({ ...prev, startDate: e.target.value }))} className="h-8 text-sm w-36 mx-auto" />
+                            </td>
+                            <td className="px-4 py-2.5 text-center">
+                              <Input type="date" value={newBed.endDate} onChange={(e) => setNewBed(prev => ({ ...prev, endDate: e.target.value }))} className="h-8 text-sm w-36 mx-auto" placeholder="Để trống = hiện tại" />
+                            </td>
+                            <td></td>
+                            <td className="px-4 py-2.5 text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <Button variant="ghost" size="icon" className="h-7 w-7 text-emerald-600 hover:bg-emerald-50" onClick={handleAddBedPlan}>
+                                  <Check className="w-4 h-4" />
+                                </Button>
+                                <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-500 hover:bg-slate-100" onClick={() => setAddingBed(false)}>
+                                  <X className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                        {filteredBedPlans.length === 0 && !addingBed ? (
+                          <tr>
+                            <td colSpan={7} className="text-center py-8 text-slate-500">Chưa có dữ liệu giường kế hoạch</td>
+                          </tr>
+                        ) : (
+                          filteredBedPlans.map((b, idx) => {
+                            const isEditing = editingBedId === b.id;
+                            const isActive = !b.endDate || new Date(b.endDate) >= new Date();
+                            return (
+                              <tr key={b.id} className="group bg-white even:bg-slate-50 hover:bg-slate-100 transition-colors">
+                                <td className="px-3 py-2.5 text-slate-500 font-mono text-xs text-center">{idx + 1}</td>
+                                <td className="px-4 py-2.5 font-medium text-slate-900">{b.departmentName}</td>
+                                <td className="px-4 py-2.5 text-center">
+                                  {isEditing ? (
+                                    <Input type="number" value={editingBed.beds} onChange={(e) => setEditingBed(prev => ({ ...prev, beds: e.target.value }))} className="h-8 w-20 text-center mx-auto text-sm" min={0} />
+                                  ) : (
+                                    <span className="font-semibold text-blue-700">{b.beds}</span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-2.5 text-center">
+                                  {isEditing ? (
+                                    <Input type="date" value={editingBed.startDate} onChange={(e) => setEditingBed(prev => ({ ...prev, startDate: e.target.value }))} className="h-8 text-sm w-36 mx-auto" />
+                                  ) : (
+                                    <span className="text-slate-600 text-xs">{b.startDate ? format(new Date(b.startDate), 'dd/MM/yyyy') : '—'}</span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-2.5 text-center">
+                                  {isEditing ? (
+                                    <Input type="date" value={editingBed.endDate || ''} onChange={(e) => setEditingBed(prev => ({ ...prev, endDate: e.target.value }))} className="h-8 text-sm w-36 mx-auto" />
+                                  ) : (
+                                    <span className="text-slate-600 text-xs">{b.endDate ? format(new Date(b.endDate), 'dd/MM/yyyy') : <span className="text-slate-400 italic">Hiện tại</span>}</span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-2.5 text-center">
+                                  {isActive ? (
+                                    <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs">Hiệu lực</Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="bg-slate-50 text-slate-500 border-slate-200 text-xs">Hết hạn</Badge>
+                                  )}
+                                </td>
+                                <td className="px-4 py-2.5 text-right">
+                                  <div className="flex items-center justify-end gap-1">
+                                    {isEditing ? (
+                                      <>
+                                        <Button variant="ghost" size="icon" className="h-7 w-7 text-emerald-600 hover:bg-emerald-50" onClick={() => handleSaveBedPlan(b.id, { beds: parseInt(editingBed.beds) || 0, startDate: editingBed.startDate, endDate: editingBed.endDate || '' })}>
+                                          <Check className="w-4 h-4" />
+                                        </Button>
+                                        <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-500 hover:bg-slate-100" onClick={() => setEditingBedId(null)}>
+                                          <X className="w-4 h-4" />
+                                        </Button>
+                                      </>
+                                    ) : confirmDeleteBedId === b.id ? (
+                                      <>
+                                        <Button variant="ghost" size="icon" className="h-7 w-7 text-red-700 hover:text-white hover:bg-red-600" onClick={() => handleDeleteBedPlan(b.id)} title="Xác nhận xóa">
+                                          <Check className="w-4 h-4" />
+                                        </Button>
+                                        <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-500 hover:bg-slate-100" onClick={() => setConfirmDeleteBedId(null)} title="Hủy">
+                                          <X className="w-4 h-4" />
+                                        </Button>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-600 hover:bg-blue-50" onClick={() => { setEditingBedId(b.id); setEditingBed({ beds: b.beds, startDate: b.startDate, endDate: b.endDate || '' }); }}>
+                                          <Edit2 className="w-3.5 h-3.5" />
+                                        </Button>
+                                        <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => setConfirmDeleteBedId(b.id)}>
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </Button>
+                                      </>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

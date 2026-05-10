@@ -7,6 +7,7 @@ import { aggregateDeptSummaries } from '../utils/computedColumns';
 import { getToday, getYesterday, formatDisplayDate } from '../utils/dateUtils';
 import { INPATIENT_FIELDS } from '../utils/constants';
 import { getSettings, updateSettings } from '../services/settingsService';
+import { getBedPlans } from '../services/bedPlanService';
 import { format, subDays, parse } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import {
@@ -26,7 +27,7 @@ import {
   Loader2, LayoutDashboard, CalendarDays, RotateCcw,
   Skull, Bug, TrendingUp, TrendingDown, Minus, Plus,
   ChevronRight, ChevronDown, ChevronUp, Monitor, Users, Activity, Eye, EyeOff,
-  ALargeSmall, ArrowUpDown,
+  ALargeSmall, ArrowUpDown, Settings2, Check,
 } from 'lucide-react';
 
 const DATE_FMT = 'yyyy-MM-dd';
@@ -55,6 +56,14 @@ export default function DashboardPage() {
   const [rowPy, setRowPy] = useState(2);
   const [sidebarWidth, setSidebarWidth] = useState(260);
   const [tableFontSize, setTableFontSize] = useState(11);
+
+  // Bed plan states
+  const [bedPlans, setBedPlans] = useState([]);
+  const [showGBKH, setShowGBKH] = useState(false);
+  const [showChenhLech, setShowChenhLech] = useState(false);
+  const [showPctChenhLech, setShowPctChenhLech] = useState(false);
+  const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
+  const settingsMenuRef = useRef(null);
 
   // Auto-measure remaining viewport height for KCB tab
   const kcbContainerRef = useRef(null);
@@ -112,14 +121,14 @@ export default function DashboardPage() {
 
   useEffect(() => {
     async function loadConfig() {
-      const [facs, depts, catalog] = await Promise.all([
-        getFacilities(), getDepartments(), getDiseaseCatalog(),
+      const [facs, depts, catalog, plans] = await Promise.all([
+        getFacilities(), getDepartments(), getDiseaseCatalog(), getBedPlans(),
       ]);
       setFacilities(facs);
       setDepartments(depts);
       setDiseaseCatalog(catalog);
+      setBedPlans(plans);
 
-      // Load dashboard row padding from settings
       const s = await getSettings();
       if (s.dashboardRowPy != null) setRowPy(s.dashboardRowPy);
       if (s.dashboardSidebarWidth != null) setSidebarWidth(s.dashboardSidebarWidth);
@@ -127,6 +136,33 @@ export default function DashboardPage() {
     }
     loadConfig();
   }, []);
+
+  // Close settings menu on outside click
+  useEffect(() => {
+    function onClickOutside(e) {
+      if (settingsMenuRef.current && !settingsMenuRef.current.contains(e.target)) {
+        setSettingsMenuOpen(false);
+      }
+    }
+    if (settingsMenuOpen) document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [settingsMenuOpen]);
+
+  // Get effective bed count for a department on a given date
+  function getEffectiveBeds(deptId, dateStr) {
+    const candidates = bedPlans
+      .filter((b) => b.departmentId === deptId)
+      .filter((b) => {
+        if (!b.startDate) return false;
+        if (b.startDate > dateStr) return false;
+        if (b.endDate && b.endDate < dateStr) return false;
+        return true;
+      });
+    if (candidates.length === 0) return null;
+    // Pick the one with the latest startDate (newest plan wins)
+    candidates.sort((a, b) => b.startDate.localeCompare(a.startDate));
+    return candidates[0].beds;
+  }
 
   // Auto-collapse trend chart when entering TV mode
   useEffect(() => {
@@ -862,70 +898,119 @@ export default function DashboardPage() {
               </CardTitle>
               <div className="flex items-center gap-2">
                 {/* Font Size control */}
-                <div className="flex items-center gap-1" title="Cỡ chữ">
-                  <ALargeSmall className="w-3.5 h-3.5 text-slate-400" />
-                  <div className="flex items-center border border-slate-200 rounded overflow-hidden">
+                <div className="flex items-center gap-1.5" title="Cỡ chữ">
+                  <ALargeSmall className="w-4 h-4 text-slate-600" />
+                  <div className="flex items-center border-2 border-slate-300 rounded-md overflow-hidden bg-white shadow-sm">
                     <button
-                      className="px-1 py-0.5 text-slate-500 hover:bg-slate-100 transition-colors"
+                      className="px-1.5 py-1 text-slate-700 hover:bg-slate-200 active:bg-slate-300 transition-colors"
                       onClick={() => {
                         const next = Math.max(8, tableFontSize - 1);
                         setTableFontSize(next);
                         updateSettings({ dashboardFontSize: next });
                       }}
                     >
-                      <Minus className="w-2.5 h-2.5" />
+                      <Minus className="w-3 h-3" />
                     </button>
-                    <span className="px-1 text-[10px] text-slate-500 font-mono border-x border-slate-200 select-none w-5 text-center">{tableFontSize}</span>
+                    <span className="px-1.5 text-xs text-slate-800 font-bold font-mono border-x-2 border-slate-300 select-none w-7 text-center">{tableFontSize}</span>
                     <button
-                      className="px-1 py-0.5 text-slate-500 hover:bg-slate-100 transition-colors"
+                      className="px-1.5 py-1 text-slate-700 hover:bg-slate-200 active:bg-slate-300 transition-colors"
                       onClick={() => {
                         const next = Math.min(18, tableFontSize + 1);
                         setTableFontSize(next);
                         updateSettings({ dashboardFontSize: next });
                       }}
                     >
-                      <Plus className="w-2.5 h-2.5" />
+                      <Plus className="w-3 h-3" />
                     </button>
                   </div>
                 </div>
                 {/* Row Height control */}
-                <div className="flex items-center gap-1" title="Chiều cao dòng">
-                  <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
-                  <div className="flex items-center border border-slate-200 rounded overflow-hidden">
+                <div className="flex items-center gap-1.5" title="Chiều cao dòng">
+                  <ArrowUpDown className="w-4 h-4 text-slate-600" />
+                  <div className="flex items-center border-2 border-slate-300 rounded-md overflow-hidden bg-white shadow-sm">
                     <button
-                      className="px-1 py-0.5 text-slate-500 hover:bg-slate-100 transition-colors"
+                      className="px-1.5 py-1 text-slate-700 hover:bg-slate-200 active:bg-slate-300 transition-colors"
                       onClick={() => {
                         const next = Math.max(0, rowPy - 1);
                         setRowPy(next);
                         updateSettings({ dashboardRowPy: next });
                       }}
                     >
-                      <Minus className="w-2.5 h-2.5" />
+                      <Minus className="w-3 h-3" />
                     </button>
-                    <span className="px-1 text-[10px] text-slate-500 font-mono border-x border-slate-200 select-none w-5 text-center">{rowPy}</span>
+                    <span className="px-1.5 text-xs text-slate-800 font-bold font-mono border-x-2 border-slate-300 select-none w-7 text-center">{rowPy}</span>
                     <button
-                      className="px-1 py-0.5 text-slate-500 hover:bg-slate-100 transition-colors"
+                      className="px-1.5 py-1 text-slate-700 hover:bg-slate-200 active:bg-slate-300 transition-colors"
                       onClick={() => {
                         const next = Math.min(16, rowPy + 1);
                         setRowPy(next);
                         updateSettings({ dashboardRowPy: next });
                       }}
                     >
-                      <Plus className="w-2.5 h-2.5" />
+                      <Plus className="w-3 h-3" />
                     </button>
                   </div>
                 </div>
                 {/* Divider */}
-                <div className="w-px h-5 bg-slate-200" />
+                <div className="w-px h-6 bg-slate-300" />
                 <Button
                   variant={showTuaTruc ? 'default' : 'outline'}
                   size="sm"
-                  className="h-6 gap-1 text-[11px] cursor-pointer"
+                  className={`h-7 gap-1.5 text-xs cursor-pointer font-semibold ${!showTuaTruc ? 'border-2 border-slate-300 text-slate-700 hover:bg-slate-100' : ''}`}
                   onClick={() => setShowTuaTruc((p) => !p)}
                 >
-                  {showTuaTruc ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                  {showTuaTruc ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                   Tua trực
                 </Button>
+                {/* Settings menu for GB KH columns */}
+                <div className="relative" ref={settingsMenuRef}>
+                  <Button
+                    variant={showGBKH ? 'default' : 'outline'}
+                    size="sm"
+                    className={`h-7 gap-1.5 text-xs cursor-pointer font-semibold ${!showGBKH ? 'border-2 border-slate-300 text-slate-700 hover:bg-slate-100' : ''}`}
+                    onClick={() => { setShowGBKH((p) => !p); if (!showGBKH) { setShowChenhLech(false); setShowPctChenhLech(false); } setSettingsMenuOpen(false); }}
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    GB KH
+                  </Button>
+                  {showGBKH && (
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 w-7 p-0 cursor-pointer ml-0.5 border-2 border-slate-300 text-slate-700 hover:bg-slate-100"
+                        onClick={() => setSettingsMenuOpen((p) => !p)}
+                        title="Cột tính toán"
+                      >
+                        <Settings2 className="w-3.5 h-3.5" />
+                      </Button>
+                      {settingsMenuOpen && (
+                        <div className="absolute top-7 right-0 z-50 bg-white rounded-lg shadow-xl border border-slate-200 py-1 w-52">
+                          <button
+                            type="button"
+                            className="flex items-center w-full px-3 py-1.5 text-xs hover:bg-slate-50 text-left gap-2"
+                            onClick={() => setShowChenhLech((p) => !p)}
+                          >
+                            <span className={`w-4 h-4 flex items-center justify-center rounded border ${showChenhLech ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300'}`}>
+                              {showChenhLech && <Check className="w-3 h-3" />}
+                            </span>
+                            Chênh lệch GB KH
+                          </button>
+                          <button
+                            type="button"
+                            className="flex items-center w-full px-3 py-1.5 text-xs hover:bg-slate-50 text-left gap-2"
+                            onClick={() => setShowPctChenhLech((p) => !p)}
+                          >
+                            <span className={`w-4 h-4 flex items-center justify-center rounded border ${showPctChenhLech ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300'}`}>
+                              {showPctChenhLech && <Check className="w-3 h-3" />}
+                            </span>
+                            % Chênh lệch GB KH
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           </CardHeader>
@@ -943,6 +1028,14 @@ export default function DashboardPage() {
                         {f.label}
                       </th>
                     ))}
+                    {showGBKH && (
+                      <th className="px-1 py-1 font-semibold border-r border-blue-500 text-center whitespace-nowrap bg-blue-700">GB KH</th>
+                    )}
+                    {showGBKH && (showChenhLech || showPctChenhLech) && (
+                      <th className="px-1 py-1 font-semibold border-r border-blue-500 text-center whitespace-nowrap bg-blue-700">
+                        {showChenhLech && showPctChenhLech ? 'CL / %' : showChenhLech ? 'Chênh lệch' : '% CL'}
+                      </th>
+                    )}
                     <th className="px-1 py-1 font-semibold text-center">TT</th>
                   </tr>
                 </thead>
@@ -957,7 +1050,7 @@ export default function DashboardPage() {
                       <Fragment key={group.id}>
                         <tr className="bg-slate-100 border-b-2 border-slate-200">
                           <td
-                            colSpan={INPATIENT_FIELDS.length + 2 + (showTuaTruc ? 1 : 0)}
+                            colSpan={INPATIENT_FIELDS.length + 2 + (showTuaTruc ? 1 : 0) + (showGBKH ? 1 : 0) + (showGBKH && (showChenhLech || showPctChenhLech) ? 1 : 0)}
                             className="px-2 font-bold text-slate-700 uppercase tracking-wide text-[10px]"
                             style={{ paddingTop: rowPy, paddingBottom: rowPy }}
                           >
@@ -967,6 +1060,10 @@ export default function DashboardPage() {
                         {group.departments.map((dept) => {
                           const r = dept.report;
                           const hasReport = !!r;
+                          const gbkh = showGBKH ? getEffectiveBeds(dept.id, selectedDate) : null;
+                          const bnHienTai = r?.bnHienTai ?? 0;
+                          const diff = gbkh != null ? bnHienTai - gbkh : null;
+                          const pct = gbkh != null && gbkh > 0 ? (bnHienTai / gbkh * 100) : null;
                           return (
                             <tr
                               key={dept.id}
@@ -988,8 +1085,8 @@ export default function DashboardPage() {
                                 <td
                                   key={f.key}
                                   className={`px-1 border-r border-slate-100 text-center align-middle ${
-                                    f.computed ? 'font-semibold text-blue-700 bg-blue-50/30' : ''
-                                  } ${f.key === 'tuVong' && r && r.tuVong > 0 ? 'text-red-600 font-bold bg-red-50' : ''}`}
+                                    f.computed ? 'font-semibold text-blue-800 bg-blue-100/60' : ''
+                                  } ${f.key === 'vaoVien' ? 'text-blue-800 font-semibold bg-blue-50/60' : ''} ${f.key === 'tuVong' && r && r.tuVong > 0 ? 'text-red-700 font-bold bg-red-50' : f.key === 'tuVong' ? 'text-red-700' : ''}`}
                                   style={{ paddingTop: rowPy, paddingBottom: rowPy, fontSize: `${tableFontSize + 1}px` }}
                                 >
                                   {hasReport ? (
@@ -999,6 +1096,22 @@ export default function DashboardPage() {
                                   ) : '—'}
                                 </td>
                               ))}
+                              {showGBKH && (
+                                <td className="px-1 border-r border-slate-100 text-center align-middle font-semibold bg-amber-100/70 text-amber-800" style={{ paddingTop: rowPy, paddingBottom: rowPy, fontSize: `${tableFontSize + 1}px` }}>
+                                  {gbkh != null ? gbkh : '—'}
+                                </td>
+                              )}
+                              {showGBKH && (showChenhLech || showPctChenhLech) && (
+                                <td className="px-1 border-r border-slate-100 text-center align-middle font-semibold whitespace-nowrap" style={{ paddingTop: rowPy, paddingBottom: rowPy, fontSize: `${tableFontSize}px` }}>
+                                  {hasReport && diff != null ? (
+                                    <span className={diff > 0 ? 'text-emerald-600' : diff < 0 ? 'text-red-600' : 'text-slate-400'}>
+                                      {showChenhLech && <>{diff > 0 ? '+' : ''}{diff}</>}
+                                      {showChenhLech && showPctChenhLech && ' '}
+                                      {showPctChenhLech && <span>{showChenhLech ? '(' : ''}{pct != null ? pct.toFixed(1) : '—'}%{showChenhLech ? ')' : ''}</span>}
+                                    </span>
+                                  ) : '—'}
+                                </td>
+                              )}
                               <td className="px-1 text-center" style={{ paddingTop: rowPy, paddingBottom: rowPy }}>
                                 {hasReport ? (
                                   <span className="text-emerald-500 text-[10px] font-semibold">✓</span>
@@ -1009,7 +1122,12 @@ export default function DashboardPage() {
                             </tr>
                           );
                         })}
-                        {group.departments.length > 1 && (
+                        {group.departments.length > 1 && (() => {
+                          const facGBKH = showGBKH ? group.departments.reduce((sum, d) => sum + (getEffectiveBeds(d.id, selectedDate) ?? 0), 0) : 0;
+                          const facBN = facTotals.bnHienTai ?? 0;
+                          const facDiff = showGBKH && facGBKH > 0 ? facBN - facGBKH : null;
+                          const facPct = showGBKH && facGBKH > 0 ? (facBN / facGBKH * 100) : null;
+                          return (
                           <tr className="bg-orange-50 font-bold border-b border-orange-200">
                             <td className="px-2 text-orange-700 border-r border-orange-200 text-[10px] uppercase tracking-wide" style={{ paddingTop: rowPy, paddingBottom: rowPy }}>
                               ⮑ Tổng {group.name}
@@ -1028,16 +1146,38 @@ export default function DashboardPage() {
                                 </span>
                               </td>
                             ))}
+                            {showGBKH && (
+                              <td className="px-1 border-r border-orange-200 text-center font-bold text-amber-700" style={{ paddingTop: rowPy, paddingBottom: rowPy, fontSize: `${tableFontSize + 1}px` }}>
+                                {facGBKH || '—'}
+                              </td>
+                            )}
+                            {showGBKH && (showChenhLech || showPctChenhLech) && (
+                              <td className="px-1 border-r border-orange-200 text-center font-bold whitespace-nowrap" style={{ paddingTop: rowPy, paddingBottom: rowPy, fontSize: `${tableFontSize}px` }}>
+                                {facDiff != null ? (
+                                  <span className={facDiff > 0 ? 'text-emerald-600' : facDiff < 0 ? 'text-red-600' : 'text-orange-400'}>
+                                    {showChenhLech && <>{facDiff > 0 ? '+' : ''}{facDiff}</>}
+                                    {showChenhLech && showPctChenhLech && ' '}
+                                    {showPctChenhLech && <span>{showChenhLech ? '(' : ''}{facPct != null ? facPct.toFixed(1) : '—'}%{showChenhLech ? ')' : ''}</span>}
+                                  </span>
+                                ) : '—'}
+                              </td>
+                            )}
                             <td className="px-1 text-center text-[10px] text-orange-600 font-semibold" style={{ paddingTop: rowPy, paddingBottom: rowPy }}>
                               {facReports.length}/{group.departments.length}
                             </td>
                           </tr>
-                        )}
+                          );
+                        })()}
                       </Fragment>
                     );
                   })}
 
-                  {todayReports.length > 0 && (
+                  {todayReports.length > 0 && (() => {
+                    const totalGBKH = showGBKH ? departments.filter(d => d.active !== false).reduce((sum, d) => sum + (getEffectiveBeds(d.id, selectedDate) ?? 0), 0) : 0;
+                    const totalBN = totals.bnHienTai ?? 0;
+                    const totalDiff = showGBKH && totalGBKH > 0 ? totalBN - totalGBKH : null;
+                    const totalPct = showGBKH && totalGBKH > 0 ? (totalBN / totalGBKH * 100) : null;
+                    return (
                     <tr className="bg-blue-600 text-white font-black border-t-2 border-blue-700">
                       <td className="px-2 border-r border-blue-500 whitespace-nowrap uppercase text-xs tracking-wide" style={{ paddingTop: rowPy + 2, paddingBottom: rowPy + 2 }}>
                         TỔNG TOÀN VIỆN
@@ -1056,15 +1196,32 @@ export default function DashboardPage() {
                           </span>
                         </td>
                       ))}
+                      {showGBKH && (
+                        <td className="px-1 border-r border-blue-500 text-center font-black" style={{ paddingTop: rowPy + 2, paddingBottom: rowPy + 2, fontSize: `${tableFontSize + 1}px` }}>
+                          {totalGBKH || '—'}
+                        </td>
+                      )}
+                      {showGBKH && (showChenhLech || showPctChenhLech) && (
+                        <td className="px-1 border-r border-blue-500 text-center font-black whitespace-nowrap" style={{ paddingTop: rowPy + 2, paddingBottom: rowPy + 2, fontSize: `${tableFontSize}px` }}>
+                          {totalDiff != null ? (
+                            <span className={totalDiff > 0 ? 'text-emerald-300' : totalDiff < 0 ? 'text-red-300' : 'text-blue-300'}>
+                              {showChenhLech && <>{totalDiff > 0 ? '+' : ''}{totalDiff}</>}
+                              {showChenhLech && showPctChenhLech && ' '}
+                              {showPctChenhLech && <span>{showChenhLech ? '(' : ''}{totalPct != null ? totalPct.toFixed(1) : '—'}%{showChenhLech ? ')' : ''}</span>}
+                            </span>
+                          ) : '—'}
+                        </td>
+                      )}
                       <td className="px-1 text-center text-[10px] text-blue-200 font-bold" style={{ paddingTop: rowPy + 2, paddingBottom: rowPy + 2 }}>
                         {todayReports.length}/{activeDepts.length}
                       </td>
                     </tr>
-                  )}
+                    );
+                  })()}
 
                   {todayReports.length === 0 && !loading && (
                     <tr>
-                      <td colSpan={INPATIENT_FIELDS.length + 2 + (showTuaTruc ? 1 : 0)} className="text-center p-12 text-slate-500 font-medium bg-slate-50/30">
+                      <td colSpan={INPATIENT_FIELDS.length + 2 + (showTuaTruc ? 1 : 0) + (showGBKH ? 1 : 0) + (showGBKH && (showChenhLech || showPctChenhLech) ? 1 : 0)} className="text-center p-12 text-slate-500 font-medium bg-slate-50/30">
                         Chưa có khoa nào nhập dữ liệu cho ngày {formatDisplayDate(selectedDate)}
                       </td>
                     </tr>
