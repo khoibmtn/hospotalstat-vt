@@ -57,6 +57,9 @@ export default function DataEntryPage() {
   // Ref to always access latest monthReports (avoids stale closure in handleAutoSaveRow)
   const monthReportsRef = useRef(monthReports);
 
+  // Guard: prevent onBlur auto-save from racing with manual save button
+  const isSavingManually = useRef(false);
+
   // Wrapper that keeps the ref in sync synchronously before React commits
   const updateMonthReports = useCallback((updater) => {
     setMonthReports((prev) => {
@@ -382,6 +385,8 @@ export default function DataEntryPage() {
   };
 
   const handleAutoSaveRow = async (date) => {
+    // Skip if a manual save is in progress (prevents blur → autoSave race with click → saveRow)
+    if (isSavingManually.current) return;
     // Use ref to get latest state (avoids stale closure after setMonthReports)
     const report = monthReportsRef.current[date];
     if (!report || !canEdit(report, date)) return;
@@ -434,6 +439,7 @@ export default function DataEntryPage() {
     if (!dept) return;
 
     setSaving((prev) => ({ ...prev, [date]: true }));
+    isSavingManually.current = true;
     try {
       await saveReport(
         date,
@@ -466,6 +472,7 @@ export default function DataEntryPage() {
     } catch (err) {
       showToast('Lỗi lưu: ' + err.message, 'error');
     } finally {
+      isSavingManually.current = false;
       setSaving((prev) => ({ ...prev, [date]: false }));
     }
   };
@@ -501,6 +508,7 @@ export default function DataEntryPage() {
       return newSaving;
     });
 
+    isSavingManually.current = true;
     try {
       // Save sequentially to prevent cascade race conditions.
       // Each saveReport cascades bnCu/bnHienTai changes to ALL subsequent dates
@@ -541,6 +549,7 @@ export default function DataEntryPage() {
     } catch (err) {
       showToast('Lỗi lưu hàng loạt: ' + err.message, 'error');
     } finally {
+      isSavingManually.current = false;
       setSaving((prev) => {
         const newSaving = { ...prev };
         editableDays.forEach(d => newSaving[d] = false);
