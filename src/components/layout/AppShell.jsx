@@ -22,7 +22,10 @@ export default function AppShell() {
 
   useEffect(() => {
     getSettings().then((s) => {
-      if (s.hospitalName) setBrandName(s.hospitalName);
+      if (s.hospitalName) {
+        setBrandName(s.hospitalName);
+        document.title = `${s.hospitalName} — Số liệu KCB`;
+      }
       if (s.hospitalIcon) setBrandIcon(s.hospitalIcon);
       if (s.hospitalIconUrl) setBrandIconUrl(s.hospitalIconUrl);
     }).catch(() => {});
@@ -30,7 +33,10 @@ export default function AppShell() {
     // Live sync when branding is changed in Settings
     const onBrandingUpdate = (e) => {
       const { hospitalName, hospitalIcon, hospitalIconUrl } = e.detail;
-      if (hospitalName !== undefined) setBrandName(hospitalName);
+      if (hospitalName !== undefined) {
+        setBrandName(hospitalName);
+        document.title = hospitalName ? `${hospitalName} — Số liệu KCB` : 'Số liệu KCB';
+      }
       if (hospitalIcon !== undefined) setBrandIcon(hospitalIcon);
       if (hospitalIconUrl !== undefined) setBrandIconUrl(hospitalIconUrl);
     };
@@ -47,7 +53,7 @@ export default function AppShell() {
   const isKehoach = user?.role === ROLES.KEHOACH;
   const canManage = isAdmin || isKehoach;
 
-  const displayName = brandName || 'HospotalStat';
+  const displayName = brandName || 'Số liệu KCB';
 
   const brandingIcon = brandIconUrl ? (
     <img src={brandIconUrl} alt="" className="h-6 w-6 rounded object-contain" />

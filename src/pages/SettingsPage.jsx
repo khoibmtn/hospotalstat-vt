@@ -77,6 +77,7 @@ export default function SettingsPage() {
   const [newDiseaseColorOpen, setNewDiseaseColorOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [iconUploading, setIconUploading] = useState(false);
+  const [confirmDeleteUserId, setConfirmDeleteUserId] = useState(null);
 
   // Death Report Columns state
   const DEFAULT_DEATH_REPORT_COLUMNS = [
@@ -415,14 +416,13 @@ export default function SettingsPage() {
   }
 
   async function handleDeleteUser(uid) {
-    if (!window.confirm('Xóa người dùng này?')) return;
     await deleteUserService(uid);
     setUsers((prev) => prev.filter((u) => u.uid !== uid));
+    setConfirmDeleteUserId(null);
     showToast('Đã xóa người dùng');
   }
 
   async function handleResetPassword(uid) {
-    if (!window.confirm('Reset mật khẩu về 123456?')) return;
     try {
       await resetUserPassword(uid);
       showToast('Đã đánh dấu reset. Chạy: node admin-reset-password.mjs');
@@ -1485,15 +1485,38 @@ export default function SettingsPage() {
                                     >
                                       <KeyRound className="w-3.5 h-3.5" />
                                     </Button>
-                                    <Button
-                                      variant="outline"
-                                      size="icon"
-                                      className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
-                                      onClick={() => handleDeleteUser(u.uid)}
-                                      title="Xóa người dùng"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </Button>
+                                    {confirmDeleteUserId === u.uid ? (
+                                      <>
+                                        <Button
+                                          variant="outline"
+                                          size="icon"
+                                          className="h-8 w-8 text-red-700 hover:text-white hover:bg-red-600 border-red-300"
+                                          onClick={() => handleDeleteUser(u.uid)}
+                                          title="Xác nhận xóa"
+                                        >
+                                          <Check className="w-3.5 h-3.5" />
+                                        </Button>
+                                        <Button
+                                          variant="outline"
+                                          size="icon"
+                                          className="h-8 w-8 text-slate-500 hover:text-slate-900 hover:bg-slate-100 border-slate-200"
+                                          onClick={() => setConfirmDeleteUserId(null)}
+                                          title="Hủy"
+                                        >
+                                          <X className="w-3.5 h-3.5" />
+                                        </Button>
+                                      </>
+                                    ) : (
+                                      <Button
+                                        variant="outline"
+                                        size="icon"
+                                        className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                        onClick={() => setConfirmDeleteUserId(u.uid)}
+                                        title="Xóa người dùng"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </Button>
+                                    )}
                                   </>
                                 )}
                               </div>
