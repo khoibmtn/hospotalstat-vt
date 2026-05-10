@@ -20,7 +20,15 @@ const COLLECTION = 'diseaseCatalog';
 export async function getDiseaseCatalog() {
   const q = query(collection(db, COLLECTION), orderBy('order'));
   const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  // Sort: group A first, then B, then by order within each group
+  docs.sort((a, b) => {
+    const gA = (a.group || 'B').toUpperCase();
+    const gB = (b.group || 'B').toUpperCase();
+    if (gA !== gB) return gA < gB ? -1 : 1;
+    return (a.order || 0) - (b.order || 0);
+  });
+  return docs;
 }
 
 /**

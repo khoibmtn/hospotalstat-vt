@@ -33,10 +33,15 @@ export default function RegisterPage() {
 
   useEffect(() => {
     async function loadData() {
-      const [facs, depts] = await Promise.all([getFacilities(), getDepartments()]);
-      setFacilities(facs);
-      setDepartments(depts);
-      if (depts.length > 0) setDepartmentId(depts[0].id);
+      try {
+        const [facs, depts] = await Promise.all([getFacilities(), getDepartments()]);
+        setFacilities(facs);
+        setDepartments(depts);
+        if (depts.length > 0) setDepartmentId(depts[0].id);
+      } catch (err) {
+        console.error('Failed to load departments:', err);
+        setError('Không thể tải danh sách khoa. Vui lòng thử lại.');
+      }
     }
     loadData();
   }, []);

@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { logoutUser } from '../../services/authService';
+import { getSettings } from '../../services/settingsService';
 import { ROLES, ROLE_LABELS } from '../../utils/constants';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet';
@@ -14,6 +15,29 @@ export default function AppShell() {
   const [searchParams] = useSearchParams();
   const isTvMode = searchParams.get('mode') === 'tv';
 
+  // Hospital branding from settings
+  const [brandName, setBrandName] = useState('');
+  const [brandIcon, setBrandIcon] = useState('');
+  const [brandIconUrl, setBrandIconUrl] = useState('');
+
+  useEffect(() => {
+    getSettings().then((s) => {
+      if (s.hospitalName) setBrandName(s.hospitalName);
+      if (s.hospitalIcon) setBrandIcon(s.hospitalIcon);
+      if (s.hospitalIconUrl) setBrandIconUrl(s.hospitalIconUrl);
+    }).catch(() => {});
+
+    // Live sync when branding is changed in Settings
+    const onBrandingUpdate = (e) => {
+      const { hospitalName, hospitalIcon, hospitalIconUrl } = e.detail;
+      if (hospitalName !== undefined) setBrandName(hospitalName);
+      if (hospitalIcon !== undefined) setBrandIcon(hospitalIcon);
+      if (hospitalIconUrl !== undefined) setBrandIconUrl(hospitalIconUrl);
+    };
+    window.addEventListener('branding-updated', onBrandingUpdate);
+    return () => window.removeEventListener('branding-updated', onBrandingUpdate);
+  }, []);
+
   async function handleLogout() {
     await logoutUser();
     navigate('/login');
@@ -23,11 +47,29 @@ export default function AppShell() {
   const isKehoach = user?.role === ROLES.KEHOACH;
   const canManage = isAdmin || isKehoach;
 
+  const displayName = brandName || 'HospotalStat';
+
+  const brandingIcon = brandIconUrl ? (
+    <img src={brandIconUrl} alt="" className="h-6 w-6 rounded object-contain" />
+  ) : brandIcon ? (
+    <span className="text-xl leading-none">{brandIcon}</span>
+  ) : (
+    <Hospital className="h-6 w-6 text-blue-400" />
+  );
+
+  const brandingIconSmall = brandIconUrl ? (
+    <img src={brandIconUrl} alt="" className="h-5 w-5 rounded object-contain" />
+  ) : brandIcon ? (
+    <span className="text-lg leading-none">{brandIcon}</span>
+  ) : (
+    <Hospital className="h-5 w-5 text-blue-400" />
+  );
+
   const navContent = (
     <div className="flex flex-col h-full bg-slate-900 text-white w-64 max-w-[80vw]">
-      <div className="flex items-center gap-3 p-6 mb-4 border-b border-slate-800">
-        <Hospital className="h-6 w-6 text-blue-400" />
-        <span className="font-bold text-lg tracking-tight">HospotalStat</span>
+      <div className="flex items-center gap-3 p-5 mb-4 border-b border-slate-800">
+        <span className="shrink-0">{brandingIcon}</span>
+        <span className="font-bold text-sm tracking-tight leading-snug break-words">{displayName}</span>
       </div>
 
       <nav className="flex-1 px-4 space-y-8 overflow-y-auto">
@@ -138,8 +180,8 @@ export default function AppShell() {
       {!isTvMode && (
       <div className="md:hidden flex items-center justify-between p-4 bg-slate-900 border-b border-slate-800 text-white shadow-sm shrink-0">
         <div className="flex items-center gap-2">
-          <Hospital className="h-5 w-5 text-blue-400" />
-          <span className="font-bold tracking-tight">HospotalStat</span>
+          {brandingIconSmall}
+          <span className="font-bold tracking-tight text-sm leading-snug">{displayName}</span>
         </div>
         <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
           <SheetTrigger asChild>

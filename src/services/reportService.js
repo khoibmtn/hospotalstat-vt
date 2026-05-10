@@ -10,6 +10,7 @@ import {
   serverTimestamp,
   orderBy,
   onSnapshot,
+  limit,
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { REPORT_STATUS, DEFAULT_INPATIENT_VALUES } from '../utils/constants';
@@ -448,10 +449,19 @@ export async function initializeDepartmentReportsForMonth(dateStr, department) {
   let lastBnHienTai = 0;
   let lastInfectiousData = [];
   if (!existingMap.has(daysInMonth[0])) {
-    const lastDayConv = subDays(new Date(daysInMonth[0] + 'T00:00:00'), 1);
-    const lastDayStr = formatDate(lastDayConv);
-    const lastReport = await getReport(lastDayStr, department.id);
-    if (lastReport) {
+    // Find the most recent report for this department BEFORE the first day.
+    // Previously only checked exactly the day before (e.g. April 30),
+    // which failed when that specific day's report hadn't been created yet.
+    const prevQuery = query(
+      collection(db, 'dailyReports'),
+      where('departmentId', '==', department.id),
+      where('date', '<', daysInMonth[0]),
+      orderBy('date', 'desc'),
+      limit(1)
+    );
+    const prevSnap = await getDocs(prevQuery);
+    if (!prevSnap.empty) {
+      const lastReport = prevSnap.docs[0].data();
       lastBnHienTai = lastReport.bnHienTai || 0;
       lastInfectiousData = lastReport.infectiousData || [];
     }
@@ -637,3 +647,183 @@ export function onReportsByDateRange(startDate, endDate, callback) {
     callback(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
   });
 }
+
+// ── Data Start Date: Purge & Backfill ────────────────────────────────────────
+
+/**
+ * Delete all dailyReports with date < cutoffDate.
+ * Returns number of documents deleted.
+ */
+export async function deleteReportsBeforeDate(cutoffDate) {
+  let totalDeleted = 0;
+  let hasMore = true;
+
+  while (hasMore) {
+    const q = query(
+      collection(db, 'dailyReports'),
+      where('date', '<', cutoffDate),
+      orderBy('date'),
+    );
+    const snap = await getDocs(q);
+
+    if (snap.empty) {
+      hasMore = false;
+      break;
+    }
+
+    const docs = snap.docs;
+    // Process in chunks of 499
+    for (let i = 0; i < docs.length; i += 499) {
+      const chunk = docs.slice(i, i + 499);
+      const batch = writeBatch(db);
+      chunk.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+      totalDeleted += chunk.length;
+    }
+
+    // If we got fewer than the potential max, we're done
+    if (docs.length < 499) {
+      hasMore = false;
+    }
+  }
+
+  return totalDeleted;
+}
+
+/**
+ * Delete all auditLogs with date < cutoffDate.
+ * Returns number of documents deleted.
+ */
+export async function deleteAuditLogsBeforeDate(cutoffDate) {
+  let totalDeleted = 0;
+  let hasMore = true;
+
+  while (hasMore) {
+    const q = query(
+      collection(db, 'auditLogs'),
+      where('date', '<', cutoffDate),
+      orderBy('date'),
+    );
+    const snap = await getDocs(q);
+
+    if (snap.empty) {
+      hasMore = false;
+      break;
+    }
+
+    const docs = snap.docs;
+    for (let i = 0; i < docs.length; i += 499) {
+      const chunk = docs.slice(i, i + 499);
+      const batch = writeBatch(db);
+      chunk.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+      totalDeleted += chunk.length;
+    }
+
+    if (docs.length < 499) {
+      hasMore = false;
+    }
+  }
+
+  return totalDeleted;
+}
+
+/**
+ * Read bnCu data for each department on a specific date.
+ * Returns Map<deptId, { bnCu, infectiousData }>
+ */
+export async function getStartDateBnCuByDept(dateStr, departments) {
+  const result = new Map();
+
+  for (const dept of departments) {
+    const report = await getReport(dateStr, dept.id);
+    if (report) {
+      result.set(dept.id, {
+        bnCu: report.bnCu || 0,
+        infectiousData: report.infectiousData || [],
+      });
+    } else {
+      result.set(dept.id, { bnCu: 0, infectiousData: [] });
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Backfill reports when expanding the data start date backwards.
+ * Creates docs from newStartDate to (oldStartDate - 1) for each department.
+ * All movement fields = 0, bnCu = bnHienTai = seedValue from old start date.
+ */
+export async function backfillReportsForExpansion(newStartDate, oldStartDate, departments, bnCuMap) {
+  const newStart = parse(newStartDate, 'yyyy-MM-dd', new Date());
+  const oldStart = parse(oldStartDate, 'yyyy-MM-dd', new Date());
+  const dayBefore = subDays(oldStart, 1);
+
+  // Generate all dates from newStartDate to dayBefore
+  const days = eachDayOfInterval({ start: newStart, end: dayBefore })
+    .map(d => format(d, 'yyyy-MM-dd'));
+
+  if (days.length === 0) return 0;
+
+  let created = 0;
+  const docsToCreate = [];
+
+  for (const dept of departments) {
+    const seedData = bnCuMap.get(dept.id) || { bnCu: 0, infectiousData: [] };
+    const seedBnCu = seedData.bnCu;
+    const seedInfectious = seedData.infectiousData || [];
+
+    for (const day of days) {
+      const docId = getReportDocId(day, dept.id);
+
+      const newInfectiousData = [];
+      seedInfectious.forEach(disease => {
+        if (disease.bnHienTai > 0 || disease.bnCu > 0) {
+          const carryVal = day === newStartDate ? seedBnCu : (disease.bnHienTai || disease.bnCu || 0);
+          newInfectiousData.push({
+            diseaseName: disease.diseaseName,
+            bnCu: disease.bnCu || 0,
+            ...DEFAULT_INPATIENT_VALUES,
+            bnHienTai: disease.bnCu || 0,
+          });
+        }
+      });
+
+      docsToCreate.push({
+        docId,
+        data: {
+          date: day,
+          departmentId: dept.id,
+          departmentName: dept.name,
+          facilityId: dept.facilityId,
+          reportedBy: null,
+          shiftName: '',
+          infectiousData: newInfectiousData,
+          bnCu: seedBnCu,
+          ...DEFAULT_INPATIENT_VALUES,
+          bnHienTai: seedBnCu,
+          status: REPORT_STATUS.OPEN,
+          lockedAt: null,
+          lockedBy: null,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        }
+      });
+    }
+  }
+
+  // Write in chunks
+  for (let i = 0; i < docsToCreate.length; i += 499) {
+    const chunk = docsToCreate.slice(i, i + 499);
+    const batch = writeBatch(db);
+    chunk.forEach(item => {
+      batch.set(doc(db, 'dailyReports', item.docId), item.data);
+    });
+    await batch.commit();
+    created += chunk.length;
+  }
+
+  return created;
+}
+

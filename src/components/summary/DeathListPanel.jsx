@@ -1,6 +1,9 @@
-import { useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { formatDisplayDate } from '@/utils/dateUtils';
-import { Loader2, FileX } from 'lucide-react';
+import { Loader2, FileX, Eye, X } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 
 const DEFAULT_COLUMNS = [
   { id: 'maKCB', label: 'Mã KCB', type: 'text' },
@@ -15,11 +18,13 @@ const DEFAULT_COLUMNS = [
   { id: 'ghiChu', label: 'Ghi chú', type: 'text' },
 ];
 
-// Long-text fields that need truncation
+// Long-text fields that need truncation in table and textarea in dialog
 const LONG_TEXT_IDS = new Set(['chanDoanVao', 'chanDoanTuVong', 'dienBien', 'tomTatCLS', 'ghiChu']);
+const WIDE_TEXT_IDS = new Set(['dienBien', 'tomTatCLS', 'ghiChu']);
 
 export default function DeathListPanel({ reports, loading, columns }) {
   const cols = columns || DEFAULT_COLUMNS;
+  const [viewingCase, setViewingCase] = useState(null);
 
   // Build flat list: filter reports with deathCases, flatten, sort
   const rows = useMemo(() => {
@@ -120,6 +125,7 @@ export default function DeathListPanel({ reports, loading, columns }) {
                   {col.label}
                 </th>
               ))}
+              <th className="px-3 py-2.5 font-semibold border-r border-slate-200 w-14 text-center bg-slate-50 sticky right-0 z-10 border-l" />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -158,6 +164,15 @@ export default function DeathListPanel({ reports, loading, columns }) {
                       </td>
                     );
                   })}
+                  <td className="px-2 py-1.5 text-center bg-white group-hover:bg-blue-50/50 sticky right-0 z-10 border-l border-slate-200">
+                    <button
+                      onClick={() => setViewingCase(row)}
+                      className="inline-flex items-center justify-center w-7 h-7 rounded-md text-blue-600 hover:bg-blue-100 hover:text-blue-800 transition-colors cursor-pointer"
+                      title="Xem chi tiết"
+                    >
+                      <Eye className="w-4 h-4" />
+                    </button>
+                  </td>
                 </tr>
               );
             })}
@@ -172,7 +187,7 @@ export default function DeathListPanel({ reports, loading, columns }) {
                 Tổng cộng: {stats.totalCases} ca
               </td>
               <td
-                colSpan={cols.length}
+                colSpan={cols.length + 1}
                 className="px-3 py-2.5 text-slate-500 text-xs bg-slate-100/95 backdrop-blur"
               >
                 {stats.totalDays} ngày · {stats.totalDepts} khoa
@@ -181,6 +196,44 @@ export default function DeathListPanel({ reports, loading, columns }) {
           </tfoot>
         </table>
       </div>
+
+      {/* View Detail Dialog */}
+      {viewingCase && (
+        <Dialog open={!!viewingCase} onOpenChange={(open) => !open && setViewingCase(null)}>
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-xl flex items-center gap-2">
+                <Eye className="w-5 h-5 text-blue-600" />
+                Chi tiết ca tử vong — {formatDisplayDate(viewingCase.date)}
+              </DialogTitle>
+              <p className="text-sm text-slate-500 mt-1">
+                Khoa: <span className="font-medium text-slate-700">{viewingCase.departmentName}</span>
+              </p>
+            </DialogHeader>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
+              {cols.map(col => (
+                <div key={col.id} className={`space-y-1 ${WIDE_TEXT_IDS.has(col.id) ? 'md:col-span-2' : ''}`}>
+                  <Label className="text-sm font-medium text-slate-500">
+                    {col.label}
+                  </Label>
+                  {WIDE_TEXT_IDS.has(col.id) || col.id === 'chanDoanVao' || col.id === 'chanDoanTuVong' ? (
+                    <div className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 min-h-[60px] whitespace-pre-wrap">
+                      {viewingCase[col.id] || <span className="text-slate-400 italic">Không có dữ liệu</span>}
+                    </div>
+                  ) : (
+                    <Input
+                      type={col.type === 'datetime' ? 'datetime-local' : 'text'}
+                      value={viewingCase[col.id] || ''}
+                      disabled
+                      className="w-full bg-slate-50 text-slate-900 disabled:opacity-100 disabled:cursor-default"
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

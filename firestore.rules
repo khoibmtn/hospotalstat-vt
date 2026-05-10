@@ -18,9 +18,6 @@ service cloud.firestore {
       return isAuthenticated() && getUserData().role == 'kehoach';
     }
     
-    function isAdminOrKeHoach() {
-      return isAdmin() || isKeHoach();
-    }
     
     function hasDepartmentAccess(deptId) {
       let data = getUserData();
@@ -31,16 +28,16 @@ service cloud.firestore {
     }
     
     function canEditReport(deptId) {
-      return isAdminOrKeHoach() || hasDepartmentAccess(deptId);
+      return isAdmin() || hasDepartmentAccess(deptId);
     }
 
     match /facilities/{docId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow write: if isAdmin();
     }
     
     match /departments/{docId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow write: if isAdmin();
     }
     
@@ -59,7 +56,7 @@ service cloud.firestore {
     match /dailyReports/{docId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && canEditReport(request.resource.data.departmentId);
-      allow update: if isAuthenticated() && canEditReport(resource.data.departmentId) && canEditReport(request.resource.data.departmentId) && (isAdminOrKeHoach() || (!('status' in resource.data) && !('locked' in resource.data)) || resource.data.status != 'locked' && resource.data.locked != true);
+      allow update: if isAuthenticated() && canEditReport(resource.data.departmentId) && canEditReport(request.resource.data.departmentId) && (isAdmin() || (!('status' in resource.data) && !('locked' in resource.data)) || resource.data.status != 'locked' && resource.data.locked != true);
       allow delete: if isAdmin(); 
     }
     

@@ -512,7 +512,8 @@ export default function InfectiousEntryTab({
                       </td>
                       {INPATIENT_FIELDS.map((f, fIdx) => {
                         const value = hasEntry ? (entry[f.key] ?? 0) : 0;
-                        const canEditCell = canEditRow && f.editable;
+                        const isFirstDayBnCu = f.key === 'bnCu' && dateStr === daysInMonth[0];
+                        const canEditCell = canEditRow && (f.editable || isFirstDayBnCu);
 
                         return (
                           <td 

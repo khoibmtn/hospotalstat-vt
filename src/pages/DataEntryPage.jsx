@@ -154,10 +154,16 @@ export default function DataEntryPage() {
           days = getAllDaysInMonth(selectedYM);
         }
 
+        // Filter out days before dataStartDate
+        const dataStart = settings?.dataStartDate;
+        if (dataStart) {
+          days = days.filter(d => d >= dataStart);
+        }
+
         // Init safeguard: only create missing docs for ≤3 months ago
         const threeMonthsAgo = format(subMonths(new Date(), 3), 'yyyy-MM');
         const endDate = days[days.length - 1];
-        if (selectedYM >= threeMonthsAgo) {
+        if (selectedYM >= threeMonthsAgo && days.length > 0) {
           await initializeDepartmentReportsForMonth(endDate, dept);
         }
 
@@ -189,14 +195,19 @@ export default function DataEntryPage() {
   }, [dataLoading, selectedDate]);
 
   // --- Navigation handlers ---
+  const dataStartDate = settings?.dataStartDate;
+  const dataStartYM = dataStartDate ? dataStartDate.substring(0, 7) : null;
+  const isPrevMonthDisabled = dataStartYM && viewMonth <= dataStartYM;
+
   const handlePrevMonth = useCallback(() => {
+    if (isPrevMonthDisabled) return;
     const current = parse(selectedDate, 'yyyy-MM-dd', new Date());
     const prev = subMonths(current, 1);
     const prevYM = format(prev, 'yyyy-MM');
     const newDate = clampDateToMonth(selectedDate, prevYM);
     setSelectedDate(newDate);
     setDetailDate(newDate);
-  }, [selectedDate]);
+  }, [selectedDate, isPrevMonthDisabled]);
 
   const handleNextMonth = useCallback(() => {
     const current = parse(selectedDate, 'yyyy-MM-dd', new Date());
@@ -491,9 +502,13 @@ export default function DataEntryPage() {
     });
 
     try {
-      const promises = editableDays.map(date => {
+      // Save sequentially to prevent cascade race conditions.
+      // Each saveReport cascades bnCu/bnHienTai changes to ALL subsequent dates
+      // (including future months). Parallel saves cause multiple cascades to read
+      // stale values and produce incorrect results (e.g. -44 instead of 23).
+      for (const date of editableDays) {
         const report = monthReports[date] || {};
-        return saveReport(
+        await saveReport(
           date,
           selectedDeptId,
           dept.name,
@@ -512,9 +527,8 @@ export default function DataEntryPage() {
           },
           user
         );
-      });
+      }
 
-      await Promise.all(promises);
       showToast(`Đã lưu thành công ${editableDays.length} ngày`);
       
       const fetchedReports = await getReportsByDepartment(selectedDeptId, daysInMonth[0], reportDate);
@@ -543,7 +557,6 @@ export default function DataEntryPage() {
     if (explicitlyLocked || autoLocked) return false;
     
     if (user.role === ROLES.ADMIN) return true;
-    if (user.role === ROLES.KEHOACH) return true;
     return canAccessDepartment(user, report.departmentId);
   }
 
@@ -633,7 +646,7 @@ export default function DataEntryPage() {
           </Select>
           {/* Date Navigation Controls */}
           <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-1 py-0.5 shadow-sm">
-            <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-600 hover:text-slate-900" onClick={handlePrevMonth} title="Tháng trước">
+            <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-600 hover:text-slate-900" onClick={handlePrevMonth} disabled={isPrevMonthDisabled} title="Tháng trước">
               <ChevronLeft className="w-4 h-4" />
             </Button>
 
@@ -654,7 +667,11 @@ export default function DataEntryPage() {
                   mode="single"
                   selected={selectedDate ? parse(selectedDate, 'yyyy-MM-dd', new Date()) : undefined}
                   onSelect={handleSelectDate}
-                  disabled={(date) => date > parse(reportDate, 'yyyy-MM-dd', new Date())}
+                  disabled={(date) => {
+                    if (date > parse(reportDate, 'yyyy-MM-dd', new Date())) return true;
+                    if (dataStartDate && format(date, 'yyyy-MM-dd') < dataStartDate) return true;
+                    return false;
+                  }}
                   defaultMonth={selectedDate ? parse(selectedDate, 'yyyy-MM-dd', new Date()) : new Date()}
                 />
               </PopoverContent>
@@ -794,28 +811,37 @@ export default function DataEntryPage() {
                                 className={`px-1 py-1 border-r border-slate-100 text-center align-middle relative ${detailDate === dateStr ? 'bg-blue-50/30' : ''} ${field.computed ? (isNegativeComputed ? 'bg-red-50 font-semibold text-red-600' : 'bg-black/[0.02] font-semibold text-slate-700') : ''}`}
                                 style={detailDate === dateStr ? { boxShadow: 'inset 0 2px 0 0 #60a5fa, inset 0 -2px 0 0 #60a5fa' } : {}}
                               >
-                                {field.editable && editable ? (
-                                  <div className="relative group-focus-within:z-10 mx-auto w-16">
-                                    <input
-                                      type="number"
-                                      min={field.key === 'tuVong' ? filledDeathRows : "0"}
-                                      aria-label={`Nhập ${field.label} ngày ${formatDisplayDate(dateStr)}`}
-                                      className={`w-full h-8 px-1 text-center border rounded-md shadow-sm hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all tabular-nums font-medium ${field.key === 'tuVong' && isDeathWarning ? 'bg-red-100 border-red-400 text-red-800' : field.key === 'tuVong' && tuVongVal > 0 && filledDeathRows >= tuVongVal ? 'bg-emerald-50 border-emerald-400 text-emerald-800' : 'bg-white border-slate-300 text-slate-900'}`}
-                                      value={report[field.key] ?? 0}
-                                      onChange={(e) =>
-                                        handleFieldChange(dateStr, field.key, e.target.value)
-                                      }
-                                      onBlur={() => handleAutoSaveRow(dateStr)}
-                                      onKeyDown={handleKeyDown}
-                                      onFocus={(e) => e.target.select()}
-                                    />
-                                  </div>
-                                ) : (
-                                  <span className={`block mx-auto min-w-[2rem] ${isNegativeComputed ? 'text-red-600 font-bold' : ''}`}>
-                                    {report[field.key] ?? 0}
-                                    {isNegativeComputed && ' ⚠️'}
-                                  </span>
-                                )}
+                                {(() => {
+                                  // BN cũ editable on dataStartDate
+                                  const isBnCuOnStartDate = field.key === 'bnCu' && dataStartDate === dateStr && editable;
+                                  const isFieldEditable = (field.editable && editable) || isBnCuOnStartDate;
+                                  
+                                  if (isFieldEditable) {
+                                    return (
+                                      <div className="relative group-focus-within:z-10 mx-auto w-16">
+                                        <input
+                                          type="number"
+                                          min={field.key === 'tuVong' ? filledDeathRows : "0"}
+                                          aria-label={`Nhập ${field.label} ngày ${formatDisplayDate(dateStr)}`}
+                                          className={`w-full h-8 px-1 text-center border rounded-md shadow-sm hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all tabular-nums font-medium ${isBnCuOnStartDate ? 'bg-blue-50 border-blue-400 text-blue-800 ring-2 ring-blue-300' : field.key === 'tuVong' && isDeathWarning ? 'bg-red-100 border-red-400 text-red-800' : field.key === 'tuVong' && tuVongVal > 0 && filledDeathRows >= tuVongVal ? 'bg-emerald-50 border-emerald-400 text-emerald-800' : 'bg-white border-slate-300 text-slate-900'}`}
+                                          value={report[field.key] ?? 0}
+                                          onChange={(e) =>
+                                            handleFieldChange(dateStr, field.key, e.target.value)
+                                          }
+                                          onBlur={() => handleAutoSaveRow(dateStr)}
+                                          onKeyDown={handleKeyDown}
+                                          onFocus={(e) => e.target.select()}
+                                        />
+                                      </div>
+                                    );
+                                  }
+                                  return (
+                                    <span className={`block mx-auto min-w-[2rem] ${isNegativeComputed ? 'text-red-600 font-bold' : ''}`}>
+                                      {report[field.key] ?? 0}
+                                      {isNegativeComputed && ' ⚠️'}
+                                    </span>
+                                  );
+                                })()}
                               </td>
                             );
                           });

@@ -48,6 +48,7 @@ export const DEFAULT_SETTINGS = {
   autoLockHour: 8,
   requireApproval: false,
   activeCategories: ['inpatient'],
+  dataStartDate: null, // YYYY-MM-DD or null (no restriction)
 };
 
 export const DEFAULT_INPATIENT_VALUES = {

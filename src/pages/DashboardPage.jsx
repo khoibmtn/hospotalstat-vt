@@ -4,8 +4,9 @@ import { onReportsByDate, onReportsByDateRange } from '../services/reportService
 import { getDepartments, getFacilities } from '../services/departmentService';
 import { getDiseaseCatalog } from '../services/diseaseCatalogService';
 import { aggregateDeptSummaries } from '../utils/computedColumns';
-import { getToday, formatDisplayDate } from '../utils/dateUtils';
+import { getToday, getYesterday, formatDisplayDate } from '../utils/dateUtils';
 import { INPATIENT_FIELDS } from '../utils/constants';
+import { getSettings, updateSettings } from '../services/settingsService';
 import { format, subDays, parse } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import {
@@ -23,8 +24,9 @@ import {
 } from '@/components/ui/select';
 import {
   Loader2, LayoutDashboard, CalendarDays, RotateCcw,
-  Skull, Bug, TrendingUp, TrendingDown, Minus,
+  Skull, Bug, TrendingUp, TrendingDown, Minus, Plus,
   ChevronRight, ChevronDown, ChevronUp, Monitor, Users, Activity, Eye, EyeOff,
+  ALargeSmall, ArrowUpDown,
 } from 'lucide-react';
 
 const DATE_FMT = 'yyyy-MM-dd';
@@ -34,7 +36,7 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const isTvMode = searchParams.get('mode') === 'tv';
 
-  const [selectedDate, setSelectedDate] = useState(getToday());
+  const [selectedDate, setSelectedDate] = useState(getYesterday());
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [todayReports, setTodayReports] = useState([]);
   const [yesterdayReports, setYesterdayReports] = useState([]);
@@ -46,7 +48,57 @@ export default function DashboardPage() {
   const [diseaseCatalog, setDiseaseCatalog] = useState([]);
   const [loading, setLoading] = useState(true);
   const [trendOpen, setTrendOpen] = useState(true);
+  const [btnTrendOpen, setBtnTrendOpen] = useState(false);
+  const [btnTrendFilter, setBtnTrendFilter] = useState('__all__');
   const [showTuaTruc, setShowTuaTruc] = useState(false);
+  const [dashboardTab, setDashboardTab] = useState('overview');
+  const [rowPy, setRowPy] = useState(2);
+  const [sidebarWidth, setSidebarWidth] = useState(260);
+  const [tableFontSize, setTableFontSize] = useState(11);
+
+  // Auto-measure remaining viewport height for KCB tab
+  const kcbContainerRef = useRef(null);
+  const [kcbHeight, setKcbHeight] = useState('100vh');
+
+  useEffect(() => {
+    if (dashboardTab !== 'kcb' || !kcbContainerRef.current) return;
+    const measure = () => {
+      const top = kcbContainerRef.current.getBoundingClientRect().top;
+      setKcbHeight(`${window.innerHeight - top - 8}px`);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(document.body);
+    window.addEventListener('resize', measure);
+    return () => { ro.disconnect(); window.removeEventListener('resize', measure); };
+  }, [dashboardTab, isTvMode]);
+
+  // Drag-to-resize sidebar
+  const isDragging = useRef(false);
+  const handleResizeStart = useCallback((e) => {
+    e.preventDefault();
+    isDragging.current = true;
+    const startX = e.clientX;
+    const startW = sidebarWidth;
+    let latestW = startW;
+    const onMove = (ev) => {
+      const delta = startX - ev.clientX;
+      latestW = Math.max(180, Math.min(500, startW + delta));
+      setSidebarWidth(latestW);
+    };
+    const onUp = () => {
+      isDragging.current = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      updateSettings({ dashboardSidebarWidth: latestW });
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [sidebarWidth]);
 
   const TREND_RANGES = [
     { label: '1 tuần', days: 7 },
@@ -56,6 +108,7 @@ export default function DashboardPage() {
   ];
 
   const isToday = selectedDate === getToday();
+  const isYesterday = selectedDate === getYesterday();
 
   useEffect(() => {
     async function loadConfig() {
@@ -65,6 +118,12 @@ export default function DashboardPage() {
       setFacilities(facs);
       setDepartments(depts);
       setDiseaseCatalog(catalog);
+
+      // Load dashboard row padding from settings
+      const s = await getSettings();
+      if (s.dashboardRowPy != null) setRowPy(s.dashboardRowPy);
+      if (s.dashboardSidebarWidth != null) setSidebarWidth(s.dashboardSidebarWidth);
+      if (s.dashboardFontSize != null) setTableFontSize(s.dashboardFontSize);
     }
     loadConfig();
   }, []);
@@ -248,6 +307,35 @@ export default function DashboardPage() {
     }));
   }, [trendData, trendFilter]);
 
+  // BTN trend data — aggregate infectious cases per date, optionally filtered by disease
+  const allDiseaseNames = useMemo(() => {
+    const nameSet = new Set();
+    trendData.forEach((d) => {
+      (d._raw || []).forEach((r) => {
+        (r.infectiousData || []).forEach((item) => {
+          if (item.diseaseName) nameSet.add(item.diseaseName);
+        });
+      });
+    });
+    return [...nameSet].sort();
+  }, [trendData]);
+
+  const btnTrendData = useMemo(() => {
+    return trendData.map((d) => {
+      let totalBn = 0;
+      let totalVao = 0;
+      (d._raw || []).forEach((r) => {
+        (r.infectiousData || []).forEach((item) => {
+          if (!item.diseaseName) return;
+          if (btnTrendFilter !== '__all__' && item.diseaseName !== btnTrendFilter) return;
+          totalBn += Number(item.bnHienTai) || 0;
+          totalVao += Number(item.vaoVien) || 0;
+        });
+      });
+      return { date: d.date, bnHienTai: totalBn, vaoVien: totalVao };
+    });
+  }, [trendData, btnTrendFilter]);
+
   const selectedDeptName = useMemo(() => {
     if (trendFilter === '__all__') return 'Toàn viện';
     if (trendFilter.startsWith('fac_')) {
@@ -302,8 +390,8 @@ export default function DashboardPage() {
       <div className={`flex flex-col md:flex-row md:items-center justify-between ${isTvMode ? 'mb-2' : 'mb-5'} gap-3 shrink-0`}>
         <div className="flex items-center gap-3">
           <LayoutDashboard className={`text-blue-600 ${isTvMode ? 'w-8 h-8' : 'w-6 h-6'}`} />
-          <h1 className={`font-bold tracking-tight text-slate-900 ${isTvMode ? 'text-3xl' : 'text-2xl'}`}>
-            Dashboard
+          <h1 className={`font-bold tracking-tight text-slate-900 ${isTvMode ? 'text-3xl' : 'text-xl'}`}>
+            Báo cáo số liệu KCB ngày {formatDisplayDate(selectedDate)}
           </h1>
           {loading && <Loader2 className="w-4 h-4 animate-spin text-blue-500" />}
         </div>
@@ -327,13 +415,22 @@ export default function DashboardPage() {
             </PopoverContent>
           </Popover>
           <Button
+            variant={isYesterday ? 'default' : 'outline'}
+            size="sm"
+            className={`h-9 gap-1.5 text-sm cursor-pointer ${isYesterday ? 'bg-blue-600 hover:bg-blue-700 text-white' : ''}`}
+            disabled={isYesterday}
+            onClick={() => setSelectedDate(getYesterday())}
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            Hôm qua
+          </Button>
+          <Button
             variant="outline"
             size="sm"
             className="h-9 gap-1.5 text-sm cursor-pointer"
             disabled={isToday}
             onClick={() => setSelectedDate(getToday())}
           >
-            <RotateCcw className="w-3.5 h-3.5" />
             Hôm nay
           </Button>
           <Button
@@ -349,12 +446,37 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* ─── TAB SWITCHER ─── */}
+      <div className={`flex items-center gap-1 ${isTvMode ? 'mb-2' : 'mb-4'} shrink-0`}>
+        <button
+          onClick={() => setDashboardTab('overview')}
+          className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all ${
+            dashboardTab === 'overview'
+              ? 'bg-blue-600 text-white shadow-md'
+              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          📊 Tổng quan
+        </button>
+        <button
+          onClick={() => setDashboardTab('kcb')}
+          className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all ${
+            dashboardTab === 'kcb'
+              ? 'bg-blue-600 text-white shadow-md'
+              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          🏥 Số liệu KCB
+        </button>
+      </div>
+
       {/* ─── CONTENT ─── */}
       <div
         className="flex-1 overflow-y-auto"
         style={isTvMode ? { scrollSnapType: 'y mandatory' } : {}}
       >
-        {/* ── Section 1: KPI + Trend ── */}
+        {/* ═══ TAB: TỔNG QUAN ═══ */}
+        <div style={{ display: dashboardTab === 'overview' ? undefined : 'none' }}>
         <div
           className={isTvMode ? 'h-full flex flex-col gap-3 pb-1' : 'flex flex-col gap-5'}
           style={isTvMode ? { scrollSnapAlign: 'start' } : {}}
@@ -426,7 +548,7 @@ export default function DashboardPage() {
                 ? 'border-red-400 bg-gradient-to-br from-red-50 to-red-100/50 ring-1 ring-red-200'
                 : 'border-slate-200 bg-gradient-to-br from-slate-50 to-white'
             }`}
-            onClick={() => navigate('/summary?tab=deathlist')}
+            onClick={() => navigate(`/summary?tab=deathlist&from=${selectedDate}&to=${selectedDate}`)}
             title="Click để xem danh sách tử vong"
           >
             <CardContent className="p-4">
@@ -648,45 +770,180 @@ export default function DashboardPage() {
             </CardContent>
           )}
         </Card>
-        </div>{/* end Section 1: KPI + Trend */}
 
-        {/* ── Section 2: Table full-screen in TV, stacked in normal ── */}
-        <div
-          className={isTvMode ? 'h-full flex flex-col' : ''}
-          style={isTvMode ? { scrollSnapAlign: 'start' } : {}}
-        >
-          <Card className="shadow-sm border-slate-200 flex-1 min-h-0">
-          <CardHeader className="py-3 px-4 border-b border-slate-100 bg-slate-50/50">
-            <div className="flex items-center justify-between">
-              <CardTitle className={`font-semibold text-slate-800 ${isTvMode ? 'text-lg' : 'text-base'}`}>
-                Chi tiết theo Khoa — {formatDisplayDate(selectedDate)}
+        {/* ═══ BTN TREND CHART — collapsible ═══ */}
+        <Card className="shadow-sm border-amber-200 shrink-0">
+          <CardHeader
+            className="py-3 px-4 border-b border-amber-100 bg-amber-50/50 cursor-pointer select-none"
+            onClick={() => setBtnTrendOpen((p) => !p)}
+          >
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <CardTitle className={`font-semibold text-amber-800 flex items-center gap-2 ${isTvMode ? 'text-lg' : 'text-base'}`}>
+                {btnTrendOpen ? <ChevronUp className="w-4 h-4 text-amber-400" /> : <ChevronDown className="w-4 h-4 text-amber-400" />}
+                <Bug className="w-4 h-4" />
+                Xu hướng Bệnh truyền nhiễm {TREND_RANGES.find(r => r.days === trendRange)?.label ?? `${trendRange} ngày`}
+                {btnTrendFilter !== '__all__' && ` — ${btnTrendFilter}`}
               </CardTitle>
-              <Button
-                variant={showTuaTruc ? 'default' : 'outline'}
-                size="sm"
-                className="h-7 gap-1.5 text-xs cursor-pointer"
-                onClick={() => setShowTuaTruc((p) => !p)}
-              >
-                {showTuaTruc ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                Tua trực
-              </Button>
+              {btnTrendOpen && (
+                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                  <Select value={btnTrendFilter} onValueChange={setBtnTrendFilter}>
+                    <SelectTrigger className="w-[220px] h-8 text-xs">
+                      <SelectValue placeholder="Tất cả bệnh" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__all__">🧬 Tất cả bệnh truyền nhiễm</SelectItem>
+                      {allDiseaseNames.map((name) => (
+                        <SelectItem key={name} value={name}>{name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
           </CardHeader>
-          <CardContent className="p-0 bg-white rounded-b-xl overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className={`${isTvMode ? 'w-auto' : 'w-full'} text-left border-collapse tabular-nums text-sm`}>
-                <thead className="text-white uppercase bg-blue-600 text-xs">
+          {btnTrendOpen && (
+            <CardContent className="p-4 bg-white">
+              {btnTrendData.some((d) => d.bnHienTai > 0 || d.vaoVien > 0) ? (
+                <ResponsiveContainer width="100%" height={isTvMode ? 300 : 220}>
+                  <LineChart data={btnTrendData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#fde68a" vertical={false} />
+                    <XAxis
+                      dataKey="date"
+                      fontSize={isTvMode ? 14 : 12}
+                      stroke="#92400e"
+                      tickLine={false}
+                      axisLine={false}
+                      interval={trendRange <= 7 ? 0 : trendRange <= 14 ? 1 : trendRange <= 30 ? 4 : 'preserveStartEnd'}
+                    />
+                    <YAxis fontSize={isTvMode ? 14 : 12} stroke="#92400e" tickLine={false} axisLine={false} allowDecimals={false} />
+                    <Tooltip
+                      contentStyle={{
+                        borderRadius: '0.5rem',
+                        border: '1px solid #fde68a',
+                        boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                        backgroundColor: '#fffbeb',
+                        color: '#78350f',
+                        fontSize: isTvMode ? 14 : 12,
+                      }}
+                    />
+                    <Legend iconType="circle" wrapperStyle={{ paddingTop: '12px' }} />
+                    <Line
+                      type="monotone" dataKey="bnHienTai" name="BN hiện tại" stroke="#d97706" strokeWidth={trendRange > 14 ? 2 : 3}
+                      dot={trendRange > 14 ? false : { r: 4, strokeWidth: 2, fill: '#fffbeb' }}
+                      activeDot={{ r: 5, fill: '#d97706' }}
+                    />
+                    <Line
+                      type="monotone" dataKey="vaoVien" name="Vào viện" stroke="#ea580c" strokeWidth={2}
+                      dot={trendRange > 14 ? false : { r: 3, fill: '#fffbeb' }}
+                      activeDot={{ r: 4, fill: '#ea580c' }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className={`flex items-center justify-center text-amber-600 font-medium bg-amber-50/30 rounded-lg ${isTvMode ? 'h-[300px]' : 'h-[220px]'}`}>
+                  Không có dữ liệu bệnh truyền nhiễm trong giai đoạn này
+                </div>
+              )}
+            </CardContent>
+          )}
+        </Card>
+        </div>
+        </div>
+
+        {/* ═══ TAB: SỐ LIỆU KCB ═══ */}
+        {dashboardTab === 'kcb' && (
+        <div ref={kcbContainerRef} className="flex gap-3" style={{ height: kcbHeight }}>
+          <div className="flex-1 min-w-0 flex flex-col">
+          <Card className="shadow-sm border-slate-200 flex-1 min-h-0 flex flex-col">
+          <CardHeader className="py-1.5 px-3 border-b border-slate-100 bg-slate-50/50 shrink-0">
+            <div className="flex items-center justify-between">
+              <CardTitle className="font-semibold text-slate-800 text-sm">
+                Chi tiết theo Khoa — {formatDisplayDate(selectedDate)}
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                {/* Font Size control */}
+                <div className="flex items-center gap-1" title="Cỡ chữ">
+                  <ALargeSmall className="w-3.5 h-3.5 text-slate-400" />
+                  <div className="flex items-center border border-slate-200 rounded overflow-hidden">
+                    <button
+                      className="px-1 py-0.5 text-slate-500 hover:bg-slate-100 transition-colors"
+                      onClick={() => {
+                        const next = Math.max(8, tableFontSize - 1);
+                        setTableFontSize(next);
+                        updateSettings({ dashboardFontSize: next });
+                      }}
+                    >
+                      <Minus className="w-2.5 h-2.5" />
+                    </button>
+                    <span className="px-1 text-[10px] text-slate-500 font-mono border-x border-slate-200 select-none w-5 text-center">{tableFontSize}</span>
+                    <button
+                      className="px-1 py-0.5 text-slate-500 hover:bg-slate-100 transition-colors"
+                      onClick={() => {
+                        const next = Math.min(18, tableFontSize + 1);
+                        setTableFontSize(next);
+                        updateSettings({ dashboardFontSize: next });
+                      }}
+                    >
+                      <Plus className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+                </div>
+                {/* Row Height control */}
+                <div className="flex items-center gap-1" title="Chiều cao dòng">
+                  <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
+                  <div className="flex items-center border border-slate-200 rounded overflow-hidden">
+                    <button
+                      className="px-1 py-0.5 text-slate-500 hover:bg-slate-100 transition-colors"
+                      onClick={() => {
+                        const next = Math.max(0, rowPy - 1);
+                        setRowPy(next);
+                        updateSettings({ dashboardRowPy: next });
+                      }}
+                    >
+                      <Minus className="w-2.5 h-2.5" />
+                    </button>
+                    <span className="px-1 text-[10px] text-slate-500 font-mono border-x border-slate-200 select-none w-5 text-center">{rowPy}</span>
+                    <button
+                      className="px-1 py-0.5 text-slate-500 hover:bg-slate-100 transition-colors"
+                      onClick={() => {
+                        const next = Math.min(16, rowPy + 1);
+                        setRowPy(next);
+                        updateSettings({ dashboardRowPy: next });
+                      }}
+                    >
+                      <Plus className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+                </div>
+                {/* Divider */}
+                <div className="w-px h-5 bg-slate-200" />
+                <Button
+                  variant={showTuaTruc ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-6 gap-1 text-[11px] cursor-pointer"
+                  onClick={() => setShowTuaTruc((p) => !p)}
+                >
+                  {showTuaTruc ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                  Tua trực
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0 bg-white rounded-b-xl flex-1 min-h-0 overflow-auto">
+            <div>
+              <table className="w-full text-left border-collapse tabular-nums" style={{ fontSize: `${tableFontSize}px` }}>
+                <thead className="text-white uppercase bg-blue-600 sticky top-0 z-10" style={{ fontSize: `${Math.max(9, tableFontSize - 1)}px` }}>
                   <tr>
-                    <th className={`px-3 ${isTvMode ? 'py-1.5' : 'py-3'} font-semibold border-r border-blue-500 ${isTvMode ? 'w-[120px]' : 'min-w-[180px]'}`}>Khoa</th>
+                    <th className="px-2 py-1 font-semibold border-r border-blue-500 whitespace-nowrap">Khoa</th>
                     {showTuaTruc && (
-                      <th className={`px-3 ${isTvMode ? 'py-1.5' : 'py-3'} font-semibold border-r border-blue-500 ${isTvMode ? 'w-[90px]' : 'min-w-[90px]'}`}>Tua trực</th>
+                      <th className="px-2 py-1 font-semibold border-r border-blue-500">Tua trực</th>
                     )}
                     {INPATIENT_FIELDS.map((f) => (
-                      <th key={f.key} className={`px-2 ${isTvMode ? 'py-1.5' : 'py-3'} font-semibold border-r border-blue-500 ${isTvMode ? 'w-[72px]' : 'min-w-[70px]'} text-center`}>
+                      <th key={f.key} className="px-1 py-1 font-semibold border-r border-blue-500 text-center whitespace-nowrap">
                         {f.label}
                       </th>
                     ))}
-                    <th className={`px-2 ${isTvMode ? 'py-1.5' : 'py-3'} font-semibold ${isTvMode ? 'w-[60px]' : 'min-w-[60px]'} text-center`}>Trạng thái</th>
+                    <th className="px-1 py-1 font-semibold text-center">TT</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -701,7 +958,8 @@ export default function DashboardPage() {
                         <tr className="bg-slate-100 border-b-2 border-slate-200">
                           <td
                             colSpan={INPATIENT_FIELDS.length + 2 + (showTuaTruc ? 1 : 0)}
-                            className={`px-4 ${isTvMode ? 'py-1' : 'py-2'} font-bold text-slate-700 uppercase tracking-wide text-xs`}
+                            className="px-2 font-bold text-slate-700 uppercase tracking-wide text-[10px]"
+                            style={{ paddingTop: rowPy, paddingBottom: rowPy }}
                           >
                             🏗️ {group.name}
                           </td>
@@ -718,20 +976,21 @@ export default function DashboardPage() {
                                   : 'bg-red-50/40 hover:bg-red-50'
                               }`}
                             >
-                              <td className={`px-3 ${isTvMode ? 'py-0.5' : 'py-2'} font-medium border-r border-slate-200 whitespace-nowrap text-slate-800`}>
+                              <td className="px-2 font-medium border-r border-slate-200 whitespace-nowrap text-slate-800" style={{ paddingTop: rowPy, paddingBottom: rowPy }}>
                                 {dept.name}
                               </td>
                               {showTuaTruc && (
-                                <td className={`px-3 ${isTvMode ? 'py-0.5' : 'py-2'} border-r border-slate-200 text-slate-600 text-xs whitespace-nowrap`}>
+                                <td className="px-2 border-r border-slate-200 text-slate-600 text-[10px] whitespace-nowrap" style={{ paddingTop: rowPy, paddingBottom: rowPy }}>
                                   {r?.tuaTruc || '—'}
                                 </td>
                               )}
                               {INPATIENT_FIELDS.map((f) => (
                                 <td
                                   key={f.key}
-                                  className={`px-2 ${isTvMode ? 'py-0.5' : 'py-2'} border-r border-slate-100 text-center align-middle ${
+                                  className={`px-1 border-r border-slate-100 text-center align-middle ${
                                     f.computed ? 'font-semibold text-blue-700 bg-blue-50/30' : ''
                                   } ${f.key === 'tuVong' && r && r.tuVong > 0 ? 'text-red-600 font-bold bg-red-50' : ''}`}
+                                  style={{ paddingTop: rowPy, paddingBottom: rowPy, fontSize: `${tableFontSize + 1}px` }}
                                 >
                                   {hasReport ? (
                                     <span className={(r[f.key] ?? 0) === 0 ? 'text-slate-400' : ''}>
@@ -740,37 +999,36 @@ export default function DashboardPage() {
                                   ) : '—'}
                                 </td>
                               ))}
-                              <td className={`px-2 ${isTvMode ? 'py-0.5' : 'py-2'} text-center`}>
+                              <td className="px-1 text-center" style={{ paddingTop: rowPy, paddingBottom: rowPy }}>
                                 {hasReport ? (
-                                  <span className="text-emerald-500 text-xs font-semibold">✓</span>
+                                  <span className="text-emerald-500 text-[10px] font-semibold">✓</span>
                                 ) : (
-                                  <Badge variant="outline" className="text-[10px] bg-red-100 text-red-600 border-red-200 px-1.5">
-                                    ❌ Chưa nhập
-                                  </Badge>
+                                  <span className="text-red-500 text-[10px]">✕</span>
                                 )}
                               </td>
                             </tr>
                           );
                         })}
                         {group.departments.length > 1 && (
-                          <tr className="bg-orange-50 font-bold border-b-2 border-orange-200">
-                            <td className={`px-3 ${isTvMode ? 'py-1' : 'py-2.5'} text-orange-700 border-r border-orange-200 text-xs uppercase tracking-wide`}>
+                          <tr className="bg-orange-50 font-bold border-b border-orange-200">
+                            <td className="px-2 text-orange-700 border-r border-orange-200 text-[10px] uppercase tracking-wide" style={{ paddingTop: rowPy, paddingBottom: rowPy }}>
                               ⮑ Tổng {group.name}
                             </td>
                             {showTuaTruc && <td className="border-r border-orange-200" />}
                             {INPATIENT_FIELDS.map((f) => (
                               <td
                                 key={f.key}
-                                className={`px-2 ${isTvMode ? 'py-1' : 'py-2.5'} border-r border-orange-200 text-center font-bold ${
+                                className={`px-1 border-r border-orange-200 text-center font-bold ${
                                   f.key === 'tuVong' && facTotals.tuVong > 0 ? 'text-red-600' : 'text-orange-800'
                                 }`}
+                                style={{ paddingTop: rowPy, paddingBottom: rowPy, fontSize: `${tableFontSize + 1}px` }}
                               >
                                 <span className={(facTotals[f.key] ?? 0) === 0 ? 'text-orange-300' : ''}>
                                   {facTotals[f.key] ?? 0}
                                 </span>
                               </td>
                             ))}
-                            <td className={`px-2 ${isTvMode ? 'py-1' : 'py-2.5'} text-center text-xs text-orange-600 font-semibold`}>
+                            <td className="px-1 text-center text-[10px] text-orange-600 font-semibold" style={{ paddingTop: rowPy, paddingBottom: rowPy }}>
                               {facReports.length}/{group.departments.length}
                             </td>
                           </tr>
@@ -780,24 +1038,25 @@ export default function DashboardPage() {
                   })}
 
                   {todayReports.length > 0 && (
-                    <tr className="bg-blue-600 text-white font-black border-t-4 border-blue-700">
-                      <td className={`px-3 ${isTvMode ? 'py-1.5' : 'py-3.5'} border-r border-blue-500 whitespace-nowrap uppercase ${isTvMode ? 'text-xs' : 'text-base'} tracking-wide`}>
+                    <tr className="bg-blue-600 text-white font-black border-t-2 border-blue-700">
+                      <td className="px-2 border-r border-blue-500 whitespace-nowrap uppercase text-xs tracking-wide" style={{ paddingTop: rowPy + 2, paddingBottom: rowPy + 2 }}>
                         TỔNG TOÀN VIỆN
                       </td>
                       {showTuaTruc && <td className="border-r border-blue-500" />}
                       {INPATIENT_FIELDS.map((f) => (
                         <td
                           key={f.key}
-                          className={`px-2 ${isTvMode ? 'py-1.5' : 'py-3.5'} border-r border-blue-500 text-center ${isTvMode ? 'text-xs' : 'text-base'} font-black ${
+                          className={`px-1 border-r border-blue-500 text-center text-xs font-black ${
                             f.key === 'tuVong' && totals.tuVong > 0 ? 'text-red-200 bg-red-900/30' : ''
                           }`}
+                          style={{ paddingTop: rowPy + 2, paddingBottom: rowPy + 2, fontSize: `${tableFontSize + 1}px` }}
                         >
                           <span className={(totals[f.key] ?? 0) === 0 && !(f.key === 'tuVong' && totals.tuVong > 0) ? 'text-blue-400' : ''}>
                             {totals[f.key] ?? 0}
                           </span>
                         </td>
                       ))}
-                      <td className={`px-2 ${isTvMode ? 'py-1.5' : 'py-3.5'} text-center text-sm text-blue-200 font-bold`}>
+                      <td className="px-1 text-center text-[10px] text-blue-200 font-bold" style={{ paddingTop: rowPy + 2, paddingBottom: rowPy + 2 }}>
                         {todayReports.length}/{activeDepts.length}
                       </td>
                     </tr>
@@ -815,7 +1074,83 @@ export default function DashboardPage() {
             </div>
           </CardContent>
         </Card>
-        </div>{/* end Section 2 */}
+          </div>
+          {/* Drag handle */}
+          <div
+            className="w-1.5 shrink-0 cursor-col-resize hover:bg-blue-300 bg-slate-200 rounded-full transition-colors active:bg-blue-400 self-stretch"
+            onMouseDown={handleResizeStart}
+            title="Kéo để thay đổi kích thước"
+          />
+          <div data-sidebar className="shrink-0 flex flex-col gap-2 overflow-y-auto" style={{ width: sidebarWidth }}>
+            {/* BN hiện tại */}
+            <Card className="shadow-sm border-blue-200 bg-gradient-to-br from-blue-50 to-white">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">BN hiện tại</span>
+                  <Users className="w-5 h-5 text-blue-400" />
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="font-black text-blue-900 text-3xl">{(totals.bnHienTai ?? 0).toLocaleString()}</span>
+                  {yesterdayReports.length > 0 && (
+                    <span className={`text-sm font-semibold px-1.5 py-0.5 rounded ${deltaBN > 0 ? 'text-red-600 bg-red-50' : deltaBN < 0 ? 'text-emerald-600 bg-emerald-50' : 'text-slate-400 bg-slate-50'}`}>{formatDelta(deltaBN)}</span>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+            {/* BN mới */}
+            <Card className="shadow-sm border-emerald-200 bg-gradient-to-br from-emerald-50 to-white">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-bold text-emerald-600 uppercase tracking-wider">Vào viện</span>
+                  <Activity className="w-5 h-5 text-emerald-400" />
+                </div>
+                <span className="font-black text-emerald-900 text-3xl">{(totals.vaoVien ?? 0).toLocaleString()}</span>
+              </CardContent>
+            </Card>
+            {/* Ra viện */}
+            <Card className="shadow-sm border-slate-200 bg-gradient-to-br from-slate-50 to-white">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Ra viện</span>
+                </div>
+                <span className="font-black text-slate-900 text-3xl">{(totals.raVien ?? 0).toLocaleString()}</span>
+              </CardContent>
+            </Card>
+            {/* Tử vong */}
+            {(totals.tuVong ?? 0) > 0 && (
+              <Card className="shadow-sm border-red-300 bg-gradient-to-br from-red-50 to-red-100/50">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-bold text-red-600 uppercase tracking-wider">Tử vong</span>
+                    <Skull className="w-5 h-5 text-red-500" />
+                  </div>
+                  <span className="font-black text-red-700 text-3xl">{totals.tuVong}</span>
+                </CardContent>
+              </Card>
+            )}
+            {/* BTN */}
+              <Card className={`shadow-sm ${totalBTN > 0 ? 'border-amber-300 bg-gradient-to-br from-amber-50 to-orange-50/50' : 'border-slate-200 bg-gradient-to-br from-slate-50 to-white'}`}>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-bold text-amber-600 uppercase tracking-wider">B. Truyền nhiễm</span>
+                    <Bug className="w-5 h-5 text-amber-500" />
+                  </div>
+                  <span className="font-black text-amber-800 text-3xl">{totalBTN}</span>
+                  {btnSummary.length > 0 && (
+                    <div className="mt-2 space-y-0.5">
+                      {btnSummary.map(d => (
+                        <div key={d.name} className="flex items-center justify-between text-xs">
+                          <span className="text-slate-600 truncate">{d.name}</span>
+                          <span className="font-bold text-amber-800 ml-1">{d.bnHienTai}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+          </div>
+        </div>
+        )}
       </div>{/* end CONTENT */}
     </div>
   );

@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { getReportsByDateRange, getReportsByDepartment } from '../services/reportService';
 import { getDepartments, getFacilities } from '../services/departmentService';
 import { getDiseaseCatalog } from '../services/diseaseCatalogService';
 import { getSettings } from '../services/settingsService';
 import { aggregateRows } from '../utils/computedColumns';
+import { exportReportsToExcel } from '../utils/excelUtils';
 import { format, parse, subDays, startOfMonth } from 'date-fns';
 import { formatDisplayDate } from '../utils/dateUtils';
 
@@ -13,7 +15,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { PieChart, CalendarDays } from 'lucide-react';
+import { PieChart, CalendarDays, Download } from 'lucide-react';
 
 import KCBOverviewTable from '../components/summary/KCBOverviewTable';
 import KCBDetailTable from '../components/summary/KCBDetailTable';
@@ -23,15 +25,22 @@ import DeathListPanel from '../components/summary/DeathListPanel';
 const DATE_FMT = 'yyyy-MM-dd';
 
 export default function SummaryPage() {
+  const [searchParams] = useSearchParams();
   const today = format(new Date(), DATE_FMT);
-  const [startDate, setStartDate] = useState(format(subDays(new Date(), 6), DATE_FMT));
-  const [endDate, setEndDate] = useState(today);
+
+  // Read initial values from query params (e.g. from Dashboard deep-link)
+  const qTab = searchParams.get('tab');
+  const qFrom = searchParams.get('from');
+  const qTo = searchParams.get('to');
+
+  const [startDate, setStartDate] = useState(qFrom || format(subDays(new Date(), 6), DATE_FMT));
+  const [endDate, setEndDate] = useState(qTo || today);
   const [departments, setDepartments] = useState([]);
   const [facilities, setFacilities] = useState([]);
   const [selectedDept, setSelectedDept] = useState('all');
   const [rawReports, setRawReports] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState(qTab || 'overview');
   const [diseaseCatalog, setDiseaseCatalog] = useState([]);
   const [settings, setSettings] = useState({});
   const fetchRef = useRef(0);
@@ -257,6 +266,19 @@ export default function SummaryPage() {
                 onClick={() => setPreset('month')}
               >
                 Tháng này
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs h-7 px-2.5 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                onClick={() => {
+                  const fileName = `BaoCao_${startDate}_${endDate}.xlsx`;
+                  exportReportsToExcel(rawReports, departments, settings, fileName);
+                }}
+                disabled={loading || rawReports.length === 0}
+              >
+                <Download className="w-3.5 h-3.5 mr-1" />
+                Export Excel
               </Button>
             </div>
           </div>

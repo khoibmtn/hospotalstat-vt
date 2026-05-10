@@ -4,8 +4,11 @@ import { getSettings, updateSettings } from '../services/settingsService';
 import { getFacilities, getDepartments, saveFacility, deleteFacility, saveDepartment, deleteDepartment } from '../services/departmentService';
 import { getDiseaseCatalog, addDisease, updateDiseaseName, updateDiseaseColor, updateDiseaseGroup, swapDiseaseOrder, deleteDisease, isDiseaseUsedInReports } from '../services/diseaseCatalogService';
 import { getAllUsers, updateUser, deleteUser as deleteUserService, resetUserPassword } from '../services/authService';
-import { importReports } from '../services/reportService';
+import { importReports, getReportsByDateRange, deleteReportsBeforeDate, deleteAuditLogsBeforeDate, getStartDateBnCuByDept, backfillReportsForExpansion } from '../services/reportService';
 import { ROLE_LABELS, ROLES, POSITIONS, TITLES } from '../utils/constants';
+import { exportReportsToExcel } from '../utils/excelUtils';
+import * as XLSX from 'xlsx';
+import { format } from 'date-fns';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -16,10 +19,32 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 
-import { Settings, Building2, Layers, Users, Plus, Trash2, Edit2, ShieldAlert, KeyRound, Loader2, Save, X, ShieldCheck, Upload, ListChecks, Check, Lock, Unlock, Palette, ArrowUp, ArrowDown, Asterisk, ArrowRightLeft } from 'lucide-react';
+import { Settings, Building2, Layers, Users, Plus, Trash2, Edit2, ShieldAlert, KeyRound, Loader2, Save, X, ShieldCheck, Upload, ListChecks, Check, Lock, Unlock, Palette, ArrowUp, ArrowDown, Asterisk, ArrowRightLeft, CalendarClock, AlertTriangle, Download, ImagePlus } from 'lucide-react';
 import ImportDataModal from '../components/data-entry/ImportDataModal';
 
-import { seedDiseaseCatalog, syncDiseaseCatalog } from '../utils/seedDiseases';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { storage } from '../config/firebase';
+
+import { seedDiseaseCatalog } from '../utils/seedDiseases';
+
+const PRESET_HOSPITAL_ICONS = [
+  { emoji: '🏥', label: 'Bệnh viện' },
+  { emoji: '🏨', label: 'Cơ sở y tế' },
+  { emoji: '🏩', label: 'Phòng khám' },
+  { emoji: '⚕️', label: 'Y tế' },
+  { emoji: '🩺', label: 'Khám bệnh' },
+  { emoji: '💊', label: 'Dược phẩm' },
+  { emoji: '🩻', label: 'Chẩn đoán' },
+  { emoji: '❤️‍🩹', label: 'Chăm sóc' },
+  { emoji: '🧬', label: 'Y sinh' },
+  { emoji: '🔬', label: 'Xét nghiệm' },
+  { emoji: '🌡️', label: 'Nhiệt kế' },
+  { emoji: '💉', label: 'Tiêm chủng' },
+  { emoji: '🛏️', label: 'Giường bệnh' },
+  { emoji: '🚑', label: 'Cấp cứu' },
+  { emoji: '⛑️', label: 'Cứu hộ' },
+  { emoji: '🧑‍⚕️', label: 'Bác sĩ' },
+];
 
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -32,6 +57,14 @@ export default function SettingsPage() {
   const [editingUser, setEditingUser] = useState(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
+  // Data start date state
+  const [dataStartMonth, setDataStartMonth] = useState('');
+  const [dataStartYear, setDataStartYear] = useState('');
+  const [showStartDateDialog, setShowStartDateDialog] = useState(false);
+  const [startDateProcessing, setStartDateProcessing] = useState(false);
+  const [startDateProgress, setStartDateProgress] = useState('');
+  const [startDateConfirmText, setStartDateConfirmText] = useState('');
+
   // Disease catalog state
   const [diseases, setDiseases] = useState([]);
   const [newDiseaseName, setNewDiseaseName] = useState('');
@@ -43,6 +76,7 @@ export default function SettingsPage() {
   const [colorPickerOpen, setColorPickerOpen] = useState(null);
   const [newDiseaseColorOpen, setNewDiseaseColorOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [iconUploading, setIconUploading] = useState(false);
 
   // Death Report Columns state
   const DEFAULT_DEATH_REPORT_COLUMNS = [
@@ -88,6 +122,12 @@ export default function SettingsPage() {
       setFacilities(facs);
       setDepts(depts);
       setUsers(usrs);
+
+      // Pre-populate data start date selects from current settings
+      if (sets.dataStartDate) {
+        setDataStartMonth(sets.dataStartDate.substring(5, 7));
+        setDataStartYear(sets.dataStartDate.substring(0, 4));
+      }
       
       // Seed then fetch disease catalog
       try {
@@ -102,15 +142,98 @@ export default function SettingsPage() {
     load();
   }, []);
 
+  function dispatchBranding(updates) {
+    window.dispatchEvent(new CustomEvent('branding-updated', { detail: updates }));
+  }
+
   async function handleSettingsChange(key, value) {
     await updateSettings({ [key]: value });
     setSettingsData((prev) => ({ ...prev, [key]: value }));
+    if (key === 'hospitalName') dispatchBranding({ hospitalName: value });
     showToast('Đã cập nhật cài đặt');
   }
 
   async function handleSaveDeathColumns(newCols) {
     setDeathColumns(newCols);
     await handleSettingsChange('deathReportColumns', newCols);
+  }
+
+  function compressImage(file, maxSize = 128) {
+    return new Promise((resolve, reject) => {
+      const objectUrl = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          const scale = Math.min(maxSize / img.width, maxSize / img.height, 1);
+          canvas.width = Math.round(img.width * scale) || maxSize;
+          canvas.height = Math.round(img.height * scale) || maxSize;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          canvas.toBlob(
+            (blob) => {
+              URL.revokeObjectURL(objectUrl);
+              if (blob) resolve(blob);
+              else reject(new Error('Canvas toBlob returned null'));
+            },
+            'image/png'
+          );
+        } catch (err) {
+          URL.revokeObjectURL(objectUrl);
+          reject(err);
+        }
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error('Failed to load image'));
+      };
+      img.src = objectUrl;
+    });
+  }
+
+  async function handleIconUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showToast('Chỉ chấp nhận file ảnh', 'error');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      showToast('Kích thước ảnh tối đa 2MB', 'error');
+      return;
+    }
+    setIconUploading(true);
+    try {
+      // Skip compression for SVGs or very small files — upload as-is
+      const isSvg = file.type === 'image/svg+xml';
+      const isSmall = file.size < 20 * 1024;
+      let uploadFile = file;
+      let fileName = 'hospital-icon' + (isSvg ? '.svg' : '.png');
+
+      if (!isSvg && !isSmall) {
+        try {
+          uploadFile = await compressImage(file, 128);
+        } catch {
+          // Compression failed (e.g. CORS), upload original
+          uploadFile = file;
+          fileName = 'hospital-icon.' + (file.name.split('.').pop() || 'png');
+        }
+      }
+
+      const storageRef = ref(storage, `settings/${fileName}`);
+      await uploadBytes(storageRef, uploadFile);
+      const url = await getDownloadURL(storageRef);
+      await updateSettings({ hospitalIcon: '', hospitalIconUrl: url });
+      setSettingsData((prev) => ({ ...prev, hospitalIcon: '', hospitalIconUrl: url }));
+      dispatchBranding({ hospitalIcon: '', hospitalIconUrl: url });
+      showToast('Đã cập nhật icon');
+    } catch (err) {
+      console.error('Upload icon failed:', err);
+      showToast('Upload icon thất bại: ' + err.message, 'error');
+    } finally {
+      setIconUploading(false);
+      e.target.value = '';
+    }
   }
 
   function handleAddDeathCol() {
@@ -354,17 +477,68 @@ export default function SettingsPage() {
     showToast('Đã thêm bệnh truyền nhiễm');
   }
 
-  async function handleSyncCatalog() {
+  function handleExportCatalog() {
+    if (diseases.length === 0) { showToast('Danh mục trống', 'warning'); return; }
+    const rows = diseases.map((d, idx) => ({
+      'STT': idx + 1,
+      'Tên bệnh': d.name,
+      'Nhóm': d.group || 'B',
+      'Màu': d.color || '#6b7280',
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [{ wch: 5 }, { wch: 50 }, { wch: 8 }, { wch: 10 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Danh mục BTN');
+    XLSX.writeFile(wb, `Danh_muc_benh_truyen_nhiem_${format(new Date(), 'yyyyMMdd')}.xlsx`);
+    showToast(`Đã xuất ${diseases.length} bệnh ra Excel`);
+  }
+
+  async function handleImportCatalog(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
     setSyncing(true);
     try {
-      const result = await syncDiseaseCatalog();
+      const data = await file.arrayBuffer();
+      const wb = XLSX.read(data);
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws);
+      if (rows.length === 0) { showToast('File Excel trống', 'error'); return; }
+
+      // Map columns (support both Vietnamese and English keys)
+      const parsed = rows.map((r, i) => ({
+        name: (r['Tên bệnh'] || r['name'] || '').toString().trim(),
+        group: (r['Nhóm'] || r['group'] || 'B').toString().trim().toUpperCase(),
+        color: (r['Màu'] || r['color'] || '#6b7280').toString().trim(),
+        order: i + 1,
+      })).filter(r => r.name);
+
+      if (parsed.length === 0) { showToast('Không tìm thấy dữ liệu hợp lệ', 'error'); return; }
+
+      const existingByName = {};
+      diseases.forEach(d => { existingByName[d.name] = d; });
+
+      let added = 0, updated = 0;
+      for (const row of parsed) {
+        const existing = existingByName[row.name];
+        if (existing) {
+          // Update group, color, order if changed
+          await updateDiseaseGroup(existing.id, row.group);
+          await updateDiseaseColor(existing.id, row.color);
+          updated++;
+        } else {
+          await addDisease(row.name, row.color, row.group);
+          added++;
+        }
+      }
+
       const catalog = await getDiseaseCatalog();
       setDiseases(catalog);
-      showToast(`Đồng bộ xong: ${result.added} bệnh mới, ${result.updated} đã cập nhật`);
-    } catch (e) {
-      showToast('Lỗi đồng bộ: ' + e.message, 'error');
+      showToast(`Nhập xong: ${added} bệnh mới, ${updated} cập nhật`);
+    } catch (err) {
+      showToast('Lỗi nhập file: ' + err.message, 'error');
     } finally {
       setSyncing(false);
+      e.target.value = '';
     }
   }
 
@@ -420,9 +594,70 @@ export default function SettingsPage() {
       setIsImportModalOpen(false);
     } catch (err) {
       console.error(err);
-      throw err; // let Modal catch and show error
+      throw err;
     }
   };
+
+  async function handleUpdateDataStartDate(newStartDate, oldStartDate) {
+    const isForward = oldStartDate && newStartDate > oldStartDate;
+    const isBackward = oldStartDate && newStartDate < oldStartDate;
+    const isFirstTime = !oldStartDate;
+
+    setStartDateProcessing(true);
+    try {
+      // Step 1: Auto export backup
+      setStartDateProgress('Đang export backup dữ liệu...');
+      const allReports = await getReportsByDateRange('2000-01-01', '2099-12-31');
+      if (allReports.length > 0) {
+        const timestamp = format(new Date(), 'yyyyMMdd_HHmmss');
+        exportReportsToExcel(allReports, departments, settings, `Backup_${timestamp}.xlsx`);
+        // Brief delay to ensure download starts
+        await new Promise(r => setTimeout(r, 1000));
+      }
+
+      if (isForward || isFirstTime) {
+        // Step 2: Read bnCu for new start date (before deletion)
+        setStartDateProgress('Đang đọc dữ liệu mốc mới...');
+        const bnCuMap = await getStartDateBnCuByDept(newStartDate, departments);
+
+        // Step 3: Delete reports before new start date
+        setStartDateProgress('Đang xóa dữ liệu cũ...');
+        const deletedReports = await deleteReportsBeforeDate(newStartDate);
+
+        // Step 4: Delete audit logs before new start date
+        setStartDateProgress('Đang xóa audit logs cũ...');
+        await deleteAuditLogsBeforeDate(newStartDate);
+
+        setStartDateProgress(`Đã xóa ${deletedReports} bản ghi.`);
+      } else if (isBackward) {
+        // Step 2: Read bnCu of old start date
+        setStartDateProgress('Đang đọc dữ liệu mốc hiện tại...');
+        const bnCuMap = await getStartDateBnCuByDept(oldStartDate, departments);
+
+        // Step 3: Backfill new dates
+        setStartDateProgress('Đang tạo dữ liệu mới...');
+        const created = await backfillReportsForExpansion(newStartDate, oldStartDate, departments, bnCuMap);
+
+        setStartDateProgress(`Đã tạo ${created} bản ghi mới.`);
+      }
+
+      // Step 5: Save setting
+      setStartDateProgress('Đang lưu cài đặt...');
+      await handleSettingsChange('dataStartDate', newStartDate);
+
+      setStartDateProgress('Hoàn tất ✓');
+      await new Promise(r => setTimeout(r, 1000));
+
+      setShowStartDateDialog(false);
+      showToast(`Đã cập nhật mốc dữ liệu: Tháng ${newStartDate.substring(5, 7)}/${newStartDate.substring(0, 4)}`);
+    } catch (err) {
+      console.error('Update data start date error:', err);
+      showToast('Lỗi: ' + err.message, 'error');
+    } finally {
+      setStartDateProcessing(false);
+      setStartDateProgress('');
+    }
+  }
 
   return (
     <div className="flex flex-col h-full bg-slate-50/50 p-4 md:p-6 pb-24 overflow-x-hidden">
@@ -470,6 +705,85 @@ export default function SettingsPage() {
                   <p className="text-xs text-slate-500 mt-1">Tên này sẽ hiển thị trên tiêu đề và báo cáo in ra.</p>
                 </div>
 
+                {/* Icon Selection */}
+                <div className="space-y-3 max-w-lg">
+                  <Label className="text-sm font-medium text-slate-700">Icon bệnh viện</Label>
+                  <p className="text-xs text-slate-500">Chọn icon có sẵn hoặc tải lên logo riêng. Icon sẽ hiển thị ở thanh điều hướng.</p>
+
+                  {/* Current preview */}
+                  <div className="flex items-center gap-3 p-3 bg-slate-900 rounded-lg w-fit">
+                    {settings.hospitalIconUrl ? (
+                      <img src={settings.hospitalIconUrl} alt="Hospital icon" className="w-7 h-7 rounded object-contain" />
+                    ) : (
+                      <span className="text-2xl leading-none">{settings.hospitalIcon || '🏥'}</span>
+                    )}
+                    <span className="text-white font-bold text-sm tracking-tight truncate max-w-[180px]">
+                      {settings.hospitalName || 'HospotalStat'}
+                    </span>
+                  </div>
+
+                  {/* Preset icons grid */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {PRESET_HOSPITAL_ICONS.map(({ emoji, label }) => {
+                      const isActive = !settings.hospitalIconUrl && settings.hospitalIcon === emoji;
+                      return (
+                        <button
+                          key={emoji}
+                          type="button"
+                          title={label}
+                          onClick={async () => {
+                            await updateSettings({ hospitalIcon: emoji, hospitalIconUrl: '' });
+                            setSettingsData((p) => ({ ...p, hospitalIcon: emoji, hospitalIconUrl: '' }));
+                            dispatchBranding({ hospitalIcon: emoji, hospitalIconUrl: '' });
+                            showToast('Đã cập nhật icon');
+                          }}
+                          className={`w-9 h-9 flex items-center justify-center rounded-lg text-lg border-2 transition-all cursor-pointer ${
+                            isActive
+                              ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200 scale-110'
+                              : 'border-slate-200 bg-white hover:border-slate-400 hover:bg-slate-50'
+                          }`}
+                        >
+                          {emoji}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Upload custom icon */}
+                  <div className="flex items-center gap-3">
+                    <label className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer transition-colors">
+                      {iconUploading ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <ImagePlus className="w-4 h-4" />
+                      )}
+                      {iconUploading ? 'Đang tải lên...' : 'Tải logo riêng'}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleIconUpload}
+                        disabled={iconUploading}
+                      />
+                    </label>
+                    {settings.hospitalIconUrl && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await updateSettings({ hospitalIconUrl: '' });
+                          setSettingsData((p) => ({ ...p, hospitalIconUrl: '' }));
+                          dispatchBranding({ hospitalIconUrl: '' });
+                          showToast('Đã xóa logo tùy chỉnh');
+                        }}
+                        className="text-xs text-red-500 hover:text-red-700 underline cursor-pointer"
+                      >
+                        Xóa logo tùy chỉnh
+                      </button>
+                    )}
+                    <span className="text-xs text-slate-400">PNG, JPG, SVG — Tối đa 2MB (tự nén xuống 128px)</span>
+                  </div>
+                </div>
+
                 <div className="h-px w-full bg-slate-100 my-6"></div>
 
                 <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
@@ -503,6 +817,184 @@ export default function SettingsPage() {
                         Import Excel
                       </Button>
                     </div>
+                  </>
+                )}
+
+                {/* --- Data Start Date Config (Admin only) --- */}
+                {user.role === ROLES.ADMIN && (
+                  <>
+                    <div className="h-px w-full bg-slate-100 my-6"></div>
+
+                    <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-4">
+                      <div className="space-y-0.5">
+                        <Label className="text-base font-semibold text-slate-800 flex items-center gap-2">
+                          <CalendarClock className="w-4 h-4 text-blue-600" />
+                          Tháng bắt đầu nhập liệu
+                        </Label>
+                        <p className="text-sm text-slate-500">
+                          Thiết lập mốc thời gian bắt đầu nhập liệu. Dữ liệu trước mốc này sẽ bị xóa.
+                        </p>
+                      </div>
+
+                      {settings.dataStartDate && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 font-medium">
+                            Đang thiết lập: Tháng {settings.dataStartDate.substring(5, 7)}/{settings.dataStartDate.substring(0, 4)}
+                          </Badge>
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap items-end gap-3">
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-slate-500">Tháng</label>
+                          <Select value={dataStartMonth} onValueChange={setDataStartMonth}>
+                            <SelectTrigger className="w-[100px] bg-white">
+                              <SelectValue placeholder="Tháng" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Array.from({ length: 12 }, (_, i) => (
+                                <SelectItem key={i + 1} value={String(i + 1).padStart(2, '0')}>
+                                  Tháng {i + 1}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-slate-500">Năm</label>
+                          <Select value={dataStartYear} onValueChange={setDataStartYear}>
+                            <SelectTrigger className="w-[100px] bg-white">
+                              <SelectValue placeholder="Năm" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Array.from({ length: 7 }, (_, i) => (
+                                <SelectItem key={2024 + i} value={String(2024 + i)}>
+                                  {2024 + i}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <Button
+                          onClick={() => {
+                            if (!dataStartMonth || !dataStartYear) {
+                              showToast('Vui lòng chọn tháng và năm', 'error');
+                              return;
+                            }
+                            const currentYM = format(new Date(), 'yyyy-MM');
+                            const selectedYM = `${dataStartYear}-${dataStartMonth}`;
+                            if (selectedYM > currentYM) {
+                              showToast('Không thể chọn tháng trong tương lai', 'error');
+                              return;
+                            }
+                            setStartDateConfirmText('');
+                            setShowStartDateDialog(true);
+                          }}
+                          disabled={
+                            !dataStartMonth || !dataStartYear || startDateProcessing ||
+                            (settings.dataStartDate && `${dataStartYear}-${dataStartMonth}` === settings.dataStartDate.substring(0, 7))
+                          }
+                          className="bg-blue-600 hover:bg-blue-700 text-white"
+                        >
+                          <CalendarClock className="w-4 h-4 mr-2" />
+                          Cập nhật
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Data Start Date Confirmation Dialog */}
+                    {showStartDateDialog && (() => {
+                      const newStartDate = `${dataStartYear}-${dataStartMonth}-01`;
+                      const oldStartDate = settings.dataStartDate;
+                      const isForward = oldStartDate && newStartDate > oldStartDate;
+                      const isBackward = oldStartDate && newStartDate < oldStartDate;
+                      const isSame = oldStartDate === newStartDate;
+                      const isFirstTime = !oldStartDate;
+                      const needsDelete = isForward || isFirstTime;
+
+                      return (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
+                            <div className="p-5 border-b border-slate-100">
+                              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                <AlertTriangle className={`w-5 h-5 ${needsDelete ? 'text-red-500' : 'text-amber-500'}`} />
+                                Xác nhận thay đổi mốc dữ liệu
+                              </h3>
+                            </div>
+
+                            <div className="p-5 space-y-4">
+                              {startDateProcessing ? (
+                                <div className="text-center py-6 space-y-3">
+                                  <Loader2 className="w-8 h-8 animate-spin mx-auto text-blue-500" />
+                                  <p className="text-sm font-medium text-slate-700">{startDateProgress}</p>
+                                </div>
+                              ) : (
+                                <>
+                                  {isSame && (
+                                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-600">
+                                      Mốc dữ liệu đã là Tháng {dataStartMonth}/{dataStartYear}. Không cần thay đổi.
+                                    </div>
+                                  )}
+
+                                  {isForward && (
+                                    <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 space-y-2">
+                                      <p className="font-semibold">⚠️ Toàn bộ dữ liệu trước Tháng {dataStartMonth}/{dataStartYear} sẽ bị xóa vĩnh viễn.</p>
+                                      <p>Hệ thống sẽ tự động export bản backup trước khi xóa.</p>
+                                    </div>
+                                  )}
+
+                                  {isFirstTime && (
+                                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700 space-y-2">
+                                      <p className="font-semibold">Thiết lập mốc dữ liệu lần đầu: Tháng {dataStartMonth}/{dataStartYear}</p>
+                                      <p>Dữ liệu trước mốc này (nếu có) sẽ bị xóa. Hệ thống sẽ tự động export backup.</p>
+                                    </div>
+                                  )}
+
+                                  {isBackward && (
+                                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700 space-y-2">
+                                      <p className="font-semibold">Mở rộng dữ liệu về Tháng {dataStartMonth}/{dataStartYear}</p>
+                                      <p>BN cũ ngày 01/{dataStartMonth}/{dataStartYear} sẽ được set bằng BN cũ ngày {oldStartDate?.substring(8, 10)}/{oldStartDate?.substring(5, 7)}/{oldStartDate?.substring(0, 4)} hiện tại.</p>
+                                      <p>Ô BN cũ editable sẽ chuyển về ngày 01/{dataStartMonth}/{dataStartYear}.</p>
+                                      <p>Hệ thống sẽ tự động export backup trước khi thay đổi.</p>
+                                    </div>
+                                  )}
+
+                                  {(needsDelete && !isSame) && (
+                                    <div className="space-y-2">
+                                      <label className="text-sm font-medium text-slate-700">Nhập "XOA" để xác nhận:</label>
+                                      <Input
+                                        value={startDateConfirmText}
+                                        onChange={e => setStartDateConfirmText(e.target.value)}
+                                        placeholder="Nhập XOA"
+                                        className="uppercase"
+                                      />
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </div>
+
+                            {!startDateProcessing && (
+                              <div className="p-4 border-t border-slate-100 flex justify-end gap-3">
+                                <Button variant="outline" onClick={() => setShowStartDateDialog(false)}>
+                                  Hủy
+                                </Button>
+                                <Button
+                                  onClick={() => handleUpdateDataStartDate(newStartDate, oldStartDate)}
+                                  disabled={
+                                    isSame ||
+                                    (needsDelete && startDateConfirmText.toUpperCase() !== 'XOA')
+                                  }
+                                  className={needsDelete ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}
+                                >
+                                  {needsDelete ? 'Xóa dữ liệu & Cập nhật' : 'Cập nhật'}
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </>
                 )}
                 
@@ -1023,10 +1515,19 @@ export default function SettingsPage() {
                   <CardTitle className="text-lg font-semibold text-slate-800">Danh mục Bệnh truyền nhiễm</CardTitle>
                   <CardDescription>Quản lý danh sách bệnh truyền nhiễm dùng trong nhập liệu hàng ngày</CardDescription>
                 </div>
-                <Button onClick={handleSyncCatalog} disabled={syncing} variant="outline" size="sm" className="text-blue-600 border-blue-200 hover:bg-blue-50">
-                  {syncing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ListChecks className="w-4 h-4 mr-2" />}
-                  Đồng bộ danh mục BYT
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button onClick={handleExportCatalog} variant="outline" size="sm" className="text-emerald-600 border-emerald-200 hover:bg-emerald-50">
+                    <Download className="w-4 h-4 mr-2" />
+                    Xuất Excel
+                  </Button>
+                  <Button asChild variant="outline" size="sm" className="text-blue-600 border-blue-200 hover:bg-blue-50" disabled={syncing}>
+                    <label className="cursor-pointer">
+                      {syncing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+                      Nhập Excel
+                      <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportCatalog} disabled={syncing} />
+                    </label>
+                  </Button>
+                </div>
               </CardHeader>
 
               <div className="p-4 bg-slate-50 border-b border-slate-100">

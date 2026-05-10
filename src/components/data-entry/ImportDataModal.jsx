@@ -4,6 +4,7 @@ import { Upload, Download, AlertCircle, CheckCircle2, X, FileSpreadsheet, Chevro
 import * as XLSX from 'xlsx';
 import { parse, isValid, format, subDays } from 'date-fns';
 import { getReportsByDepartment } from '../../services/reportService';
+import { parseDeptIdFromSheet, parseImportSheet } from '../../utils/excelUtils';
 
 // --- Helpers ---
 
@@ -71,7 +72,13 @@ export default function ImportDataModal({ isOpen, onClose, departments, onImport
   // UI state
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState(null);
-  const [successCount, setSuccessCount] = useState(0); // sheets imported this session
+  const [successCount, setSuccessCount] = useState(0);
+
+  // Multi-sheet auto-map state
+  const [isMultiSheetMode, setIsMultiSheetMode] = useState(false);
+  const [sheetMapping, setSheetMapping] = useState([]); // [{ sheetName, deptId, deptName, status }]
+  const [multiSheetProcessing, setMultiSheetProcessing] = useState(false);
+  const [multiSheetProgress, setMultiSheetProgress] = useState('');
 
   const hasPreviousDBRecordRef = useRef(false);
 
@@ -87,8 +94,10 @@ export default function ImportDataModal({ isOpen, onClose, departments, onImport
       setPreviewData([]);
       setHasParseError(false);
       setHasNegativeError(false);
-      setError(null);
-      setSuccessCount(0);
+      setIsMultiSheetMode(false);
+      setSheetMapping([]);
+      setMultiSheetProcessing(false);
+      setMultiSheetProgress('');
     }
   }, [isOpen]);
 
@@ -106,6 +115,8 @@ export default function ImportDataModal({ isOpen, onClose, departments, onImport
     setSelectedDept('');
     setError(null);
     setSuccessCount(0);
+    setIsMultiSheetMode(false);
+    setSheetMapping([]);
     setFile(selectedFile);
 
     setIsProcessing(true);
@@ -114,22 +125,43 @@ export default function ImportDataModal({ isOpen, onClose, departments, onImport
       const wb = XLSX.read(data);
       setWorkbook(wb);
 
-      const valid = wb.SheetNames.reduce((acc, name) => {
-        const ws = wb.Sheets[name];
-        const json = XLSX.utils.sheet_to_json(ws, { defval: 0 });
-        const validRows = json.filter(rowIsValid);
-        if (validRows.length > 0) {
-          acc.push({ name, rowCount: validRows.length });
+      // Check for multi-sheet with dept ID mapping
+      const mappings = wb.SheetNames.map(name => {
+        const deptId = parseDeptIdFromSheet(name);
+        const dept = deptId ? departments.find(d => d.id === deptId) : null;
+        return {
+          sheetName: name,
+          deptId: deptId,
+          deptName: dept?.name || null,
+          matched: !!dept,
+        };
+      });
+
+      const matchedCount = mappings.filter(m => m.matched).length;
+
+      if (matchedCount > 1) {
+        // Multi-sheet mode: auto-mapped
+        setIsMultiSheetMode(true);
+        setSheetMapping(mappings.filter(m => m.matched));
+      } else {
+        // Single sheet mode (legacy)
+        const valid = wb.SheetNames.reduce((acc, name) => {
+          const ws = wb.Sheets[name];
+          const json = XLSX.utils.sheet_to_json(ws, { defval: 0 });
+          const validRows = json.filter(rowIsValid);
+          if (validRows.length > 0) {
+            acc.push({ name, rowCount: validRows.length });
+          }
+          return acc;
+        }, []);
+
+        setValidSheets(valid);
+
+        if (valid.length === 0) {
+          setError('Không tìm thấy sheet nào có dữ liệu hợp lệ (cần cột Ngày + VaoVien).');
+        } else if (valid.length === 1) {
+          setSelectedSheet(valid[0].name);
         }
-        return acc;
-      }, []);
-
-      setValidSheets(valid);
-
-      if (valid.length === 0) {
-        setError('Không tìm thấy sheet nào có dữ liệu hợp lệ (cần cột Ngày + VaoVien).');
-      } else if (valid.length === 1) {
-        setSelectedSheet(valid[0].name); // auto-select if only one
       }
     } catch (err) {
       setError(err.message || 'Lỗi đọc file Excel.');
@@ -278,6 +310,55 @@ export default function ImportDataModal({ isOpen, onClose, departments, onImport
     }
   };
 
+  // ── Multi-sheet batch import ───────────────────────────────────────────────
+
+  const handleMultiSheetImport = async () => {
+    if (!workbook || sheetMapping.length === 0) return;
+
+    setMultiSheetProcessing(true);
+    setError(null);
+    let imported = 0;
+
+    try {
+      for (const mapping of sheetMapping) {
+        setMultiSheetProgress(`Đang import: ${mapping.deptName} (${imported + 1}/${sheetMapping.length})...`);
+
+        const ws = workbook.Sheets[mapping.sheetName];
+        const { kcbRecords } = parseImportSheet(ws);
+
+        if (kcbRecords.length === 0) continue;
+
+        // Sort by date
+        kcbRecords.sort((a, b) => a.date.localeCompare(b.date));
+
+        // Get previous day's data for BN cũ seeding
+        const minDateStr = kcbRecords[0].date;
+        const minMinus1Str = format(subDays(new Date(minDateStr + 'T00:00:00'), 1), 'yyyy-MM-dd');
+        const existingReports = await getReportsByDepartment(mapping.deptId, minMinus1Str, minMinus1Str);
+        const prevBnHienTai = existingReports.length > 0 ? (existingReports[0].bnHienTai || 0) : 0;
+
+        // Compute BN cũ and BN hiện tại for each record
+        let running = prevBnHienTai;
+        const records = kcbRecords.map((r, idx) => {
+          const bnCu = idx === 0 ? running : running;
+          const bnHienTai = bnCu + r.vaoVien + r.chuyenDen - r.chuyenDi - r.raVien - r.tuVong - r.chuyenVien;
+          running = bnHienTai;
+          return { ...r, bnCu, bnHienTai };
+        });
+
+        await onImportConfirm(mapping.deptId, records);
+        imported++;
+      }
+
+      setSuccessCount(imported);
+      setMultiSheetProgress(`Hoàn tất! Đã import ${imported} khoa.`);
+    } catch (err) {
+      setError(`Lỗi tại sheet ${imported + 1}: ${err.message}`);
+    } finally {
+      setMultiSheetProcessing(false);
+    }
+  };
+
   // ── Step helpers (back to config from preview) ─────────────────────────────
 
   const handleBackToConfig = () => {
@@ -338,7 +419,11 @@ export default function ImportDataModal({ isOpen, onClose, departments, onImport
                 <div className="flex items-center gap-2 text-slate-700">
                   <FileSpreadsheet className="w-4 h-4 text-teal-600 flex-shrink-0" />
                   <span className="font-medium text-sm truncate">{file.name}</span>
-                  {validSheets.length > 0 && (
+                  {isMultiSheetMode ? (
+                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full whitespace-nowrap">
+                      {sheetMapping.length} khoa tự nhận diện
+                    </span>
+                  ) : validSheets.length > 0 && (
                     <span className="text-xs bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full whitespace-nowrap">
                       {validSheets.length} sheet hợp lệ
                     </span>
@@ -368,8 +453,67 @@ export default function ImportDataModal({ isOpen, onClose, departments, onImport
             </div>
           </div>
 
-          {/* ── STEP 2: Config (sheet + khoa) — shown once file is loaded ── */}
-          {workbook && validSheets.length > 0 && (
+          {/* ── MULTI-SHEET MODE: Auto-mapped sheets ── */}
+          {isMultiSheetMode && sheetMapping.length > 0 && (
+            <div className="border border-slate-200 rounded-lg overflow-hidden">
+              <div className="bg-teal-50 px-4 py-2.5 border-b border-teal-200 flex items-center justify-between">
+                <span className="text-xs font-semibold text-teal-700 uppercase tracking-wide">
+                  Import tự động — {sheetMapping.length} khoa được nhận diện
+                </span>
+              </div>
+              <div className="p-4 space-y-3">
+                <table className="w-full text-sm text-left">
+                  <thead className="text-xs text-slate-500 uppercase bg-slate-50">
+                    <tr>
+                      <th className="px-3 py-2">#</th>
+                      <th className="px-3 py-2">Sheet</th>
+                      <th className="px-3 py-2">Khoa</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {sheetMapping.map((m, i) => (
+                      <tr key={m.sheetName} className="hover:bg-slate-50">
+                        <td className="px-3 py-2 text-slate-400 text-xs">{i + 1}</td>
+                        <td className="px-3 py-2 font-medium text-slate-700 text-xs truncate max-w-[200px]">{m.sheetName}</td>
+                        <td className="px-3 py-2 text-teal-700 font-medium text-xs">{m.deptName}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {multiSheetProcessing && (
+                  <div className="flex items-center gap-2 text-sm text-blue-700 bg-blue-50 p-3 rounded-lg">
+                    <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+                    <span>{multiSheetProgress}</span>
+                  </div>
+                )}
+
+                {successCount > 0 && !multiSheetProcessing && (
+                  <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 p-3 rounded-lg">
+                    <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                    <span>{multiSheetProgress}</span>
+                  </div>
+                )}
+
+                <Button
+                  onClick={handleMultiSheetImport}
+                  disabled={multiSheetProcessing || (successCount > 0 && !error)}
+                  className="w-full"
+                >
+                  {multiSheetProcessing ? (
+                    <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Đang import...</>
+                  ) : successCount > 0 ? (
+                    <><CheckCircle2 className="w-4 h-4 mr-2" /> Đã import xong</>
+                  ) : (
+                    <><Upload className="w-4 h-4 mr-2" /> Import tất cả {sheetMapping.length} khoa</>
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* ── STEP 2: Config (sheet + khoa) — shown once file is loaded (single-sheet mode) ── */}
+          {workbook && validSheets.length > 0 && !isMultiSheetMode && (
             <div className="border border-slate-200 rounded-lg overflow-hidden">
               <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200 flex items-center gap-2">
                 <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Cấu hình Import</span>
