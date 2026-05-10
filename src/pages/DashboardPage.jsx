@@ -27,7 +27,7 @@ import {
   Loader2, LayoutDashboard, CalendarDays, RotateCcw,
   Skull, Bug, TrendingUp, TrendingDown, Minus, Plus,
   ChevronRight, ChevronDown, ChevronUp, Monitor, Users, Activity, Eye, EyeOff,
-  ALargeSmall, ArrowUpDown, Settings2, Check,
+  ALargeSmall, ArrowUpDown, Settings2, Check, PanelRightClose, PanelRightOpen,
 } from 'lucide-react';
 
 const DATE_FMT = 'yyyy-MM-dd';
@@ -55,6 +55,7 @@ export default function DashboardPage() {
   const [dashboardTab, setDashboardTab] = useState('overview');
   const [rowPy, setRowPy] = useState(2);
   const [sidebarWidth, setSidebarWidth] = useState(260);
+  const [showStatCards, setShowStatCards] = useState(true);
   const [tableFontSize, setTableFontSize] = useState(11);
 
   // Bed plan states
@@ -1043,6 +1044,17 @@ export default function DashboardPage() {
                     </>
                   )}
                 </div>
+                {/* Toggle stat cards sidebar */}
+                <Button
+                  variant={showStatCards ? 'default' : 'outline'}
+                  size="sm"
+                  className={`h-7 gap-1.5 text-xs cursor-pointer font-semibold ${!showStatCards ? 'border-2 border-slate-300 text-slate-700 hover:bg-slate-100' : ''}`}
+                  onClick={() => setShowStatCards((p) => !p)}
+                  title={showStatCards ? 'Ẩn thẻ thống kê' : 'Hiện thẻ thống kê'}
+                >
+                  {showStatCards ? <PanelRightClose className="w-3.5 h-3.5" /> : <PanelRightOpen className="w-3.5 h-3.5" />}
+                  Thẻ TK
+                </Button>
               </div>
             </div>
           </CardHeader>
@@ -1275,7 +1287,9 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
           </div>
-          {/* Drag handle */}
+          {/* Drag handle + stat cards sidebar */}
+          {showStatCards && (
+          <>
           <div
             className="w-1.5 shrink-0 cursor-col-resize hover:bg-blue-300 bg-slate-200 rounded-full transition-colors active:bg-blue-400 self-stretch"
             onMouseDown={handleResizeStart}
@@ -1349,6 +1363,8 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
           </div>
+          </>
+          )}
         </div>
         )}
       </div>{/* end CONTENT */}
