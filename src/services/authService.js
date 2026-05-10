@@ -2,6 +2,9 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
+  updatePassword,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
 } from 'firebase/auth';
 import {
   doc,
@@ -125,6 +128,19 @@ export async function loginUser(nickname, password) {
 
 export async function logoutUser() {
   await signOut(auth);
+}
+
+export async function updateUserPassword(currentPassword, newPassword) {
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error('Chưa đăng nhập.');
+  const credential = EmailAuthProvider.credential(currentUser.email, currentPassword);
+  try {
+    await reauthenticateWithCredential(currentUser, credential);
+  } catch {
+    throw new Error('Mật khẩu hiện tại không đúng.');
+  }
+  if (newPassword.length < 6) throw new Error('Mật khẩu mới tối thiểu 6 ký tự.');
+  await updatePassword(currentUser, newPassword);
 }
 
 export async function getUserData(uid) {

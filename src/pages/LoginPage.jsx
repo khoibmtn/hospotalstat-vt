@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { loginUser } from '../services/authService';
+import { getSettings } from '../services/settingsService';
 import { useAuth } from '../contexts/AuthContext';
 import { isFirebaseConfigured } from '../config/firebase';
 
@@ -15,12 +16,17 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [registrationAllowed, setRegistrationAllowed] = useState(true);
   const { user } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
     if (user) navigate('/');
   }, [user, navigate]);
+
+  useEffect(() => {
+    getSettings().then((s) => setRegistrationAllowed(s.allowRegistration !== false)).catch(() => {});
+  }, []);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -118,12 +124,16 @@ export default function LoginPage() {
         </CardContent>
         
         <CardFooter className="flex justify-center border-t border-slate-100 py-4 bg-slate-50/50 rounded-b-xl mt-2">
-          <p className="text-sm text-slate-600">
-            Chưa có tài khoản?{' '}
-            <Link to="/register" className="font-semibold text-blue-600 hover:text-blue-700 hover:underline transition-colors">
-              Đăng ký ngay
-            </Link>
-          </p>
+          {registrationAllowed ? (
+            <p className="text-sm text-slate-600">
+              Chưa có tài khoản?{' '}
+              <Link to="/register" className="font-semibold text-blue-600 hover:text-blue-700 hover:underline transition-colors">
+                Đăng ký ngay
+              </Link>
+            </p>
+          ) : (
+            <p className="text-sm text-slate-400">Đăng ký tài khoản mới đã bị tạm khóa.</p>
+          )}
         </CardFooter>
       </Card>
     </div>

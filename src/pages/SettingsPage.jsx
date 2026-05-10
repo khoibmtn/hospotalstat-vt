@@ -857,6 +857,19 @@ export default function SettingsPage() {
 
                 <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
                   <div className="space-y-0.5">
+                    <Label htmlFor="allow-registration" className="text-base font-semibold text-slate-800 cursor-pointer">Cho phép đăng ký tài khoản mới</Label>
+                    <p className="text-sm text-slate-500">Khi tắt, trang đăng ký sẽ bị khóa và người dùng không thể tự tạo tài khoản.</p>
+                  </div>
+                  <Switch
+                    id="allow-registration"
+                    checked={settings.allowRegistration !== false}
+                    onCheckedChange={(checked) => handleSettingsChange('allowRegistration', checked)}
+                    className="data-[state=checked]:bg-blue-600"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
+                  <div className="space-y-0.5">
                     <Label htmlFor="require-approval" className="text-base font-semibold text-slate-800 cursor-pointer">Yêu cầu phê duyệt tài khoản mới</Label>
                     <p className="text-sm text-slate-500">Tài khoản mới đăng ký phải được Admin duyệt mới có thể đăng nhập.</p>
                   </div>

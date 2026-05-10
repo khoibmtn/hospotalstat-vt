@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { registerUser } from '../services/authService';
 import { getDepartments, getFacilities } from '../services/departmentService';
+import { getSettings } from '../services/settingsService';
 import { useAuth } from '../contexts/AuthContext';
 import { ROLES, POSITIONS, TITLES } from '../utils/constants';
 
@@ -10,20 +11,22 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { UserPlus } from 'lucide-react';
+import { UserPlus, ShieldOff } from 'lucide-react';
 
 export default function RegisterPage() {
   const [departmentId, setDepartmentId] = useState('');
   const [fullName, setFullName] = useState('');
   const [nickname, setNickname] = useState('');
-  const [position, setPosition] = useState(POSITIONS[3]); // Default: Nhân viên
-  const [title, setTitle] = useState(TITLES[0]); // Default: Bác sĩ
+  const [position, setPosition] = useState(POSITIONS[3]);
+  const [title, setTitle] = useState(TITLES[0]);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [departments, setDepartments] = useState([]);
   const [facilities, setFacilities] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [registrationAllowed, setRegistrationAllowed] = useState(true);
+  const [checkingSettings, setCheckingSettings] = useState(true);
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -42,6 +45,14 @@ export default function RegisterPage() {
         console.error('Failed to load departments:', err);
         setError('Không thể tải danh sách khoa. Vui lòng thử lại.');
       }
+      // Settings requires auth — load separately, fail silently
+      try {
+        const settings = await getSettings();
+        setRegistrationAllowed(settings.allowRegistration !== false);
+      } catch {
+        // Not authenticated — default to allowed (server will re-check)
+      }
+      setCheckingSettings(false);
     }
     loadData();
   }, []);
@@ -92,6 +103,37 @@ export default function RegisterPage() {
     ...f,
     depts: departments.filter((d) => d.facilityId === f.id),
   }));
+
+  if (checkingSettings) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="w-6 h-6 border-2 border-blue-600/30 border-t-blue-600 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!registrationAllowed) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 py-12">
+        <Card className="w-full max-w-md shadow-lg border-slate-200">
+          <CardContent className="flex flex-col items-center text-center py-12 px-6 space-y-4">
+            <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center">
+              <ShieldOff className="w-8 h-8 text-red-500" />
+            </div>
+            <h2 className="text-xl font-bold text-slate-800">Đăng ký tạm thời bị khóa</h2>
+            <p className="text-slate-500 text-sm max-w-xs">
+              Quản trị viên đã tạm dừng chức năng đăng ký tài khoản mới. Vui lòng liên hệ Admin để được cấp tài khoản.
+            </p>
+            <Link to="/login">
+              <Button variant="outline" className="mt-2">
+                ← Quay lại đăng nhập
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 py-12">

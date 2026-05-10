@@ -65,6 +65,38 @@ export default function DashboardPage() {
   const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
   const settingsMenuRef = useRef(null);
 
+  // Column resize state
+  const [colWidths, setColWidths] = useState({});
+  const resizingCol = useRef(null);
+  const resizeStartX = useRef(0);
+  const resizeStartW = useRef(0);
+
+  const onResizeStart = useCallback((colKey, e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const th = e.target.closest('th');
+    resizingCol.current = colKey;
+    resizeStartX.current = e.clientX;
+    resizeStartW.current = th?.offsetWidth || 60;
+
+    const onMove = (ev) => {
+      const delta = ev.clientX - resizeStartX.current;
+      const newW = Math.max(30, resizeStartW.current + delta);
+      setColWidths((prev) => ({ ...prev, [resizingCol.current]: newW }));
+    };
+    const onUp = () => {
+      resizingCol.current = null;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, []);
+
   // Auto-measure remaining viewport height for KCB tab
   const kcbContainerRef = useRef(null);
   const [kcbHeight, setKcbHeight] = useState('100vh');
@@ -1019,21 +1051,32 @@ export default function DashboardPage() {
               <table className="w-full text-left border-collapse tabular-nums" style={{ fontSize: `${tableFontSize}px` }}>
                 <thead className="text-white uppercase bg-blue-600 sticky top-0 z-10" style={{ fontSize: `${Math.max(9, tableFontSize - 1)}px` }}>
                   <tr>
-                    <th className="px-2 py-1 font-semibold border-r border-blue-500 whitespace-nowrap">Khoa</th>
+                    <th className="px-2 py-1 font-semibold border-r border-blue-500 whitespace-nowrap relative" style={colWidths.khoa ? { width: colWidths.khoa } : undefined}>
+                      Khoa
+                      <div className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-400/50 active:bg-blue-400" onMouseDown={(e) => onResizeStart('khoa', e)} />
+                    </th>
                     {showTuaTruc && (
-                      <th className="px-2 py-1 font-semibold border-r border-blue-500">Tua trực</th>
+                      <th className="px-2 py-1 font-semibold border-r border-blue-500 relative" style={colWidths.tuaTruc ? { width: colWidths.tuaTruc } : undefined}>
+                        Tua trực
+                        <div className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-400/50 active:bg-blue-400" onMouseDown={(e) => onResizeStart('tuaTruc', e)} />
+                      </th>
                     )}
                     {INPATIENT_FIELDS.map((f) => (
-                      <th key={f.key} className="px-1 py-1 font-semibold border-r border-blue-500 text-center whitespace-nowrap">
+                      <th key={f.key} className="px-1 py-1 font-semibold border-r border-blue-500 text-center whitespace-nowrap relative" style={colWidths[f.key] ? { width: colWidths[f.key] } : undefined}>
                         {f.label}
+                        <div className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-400/50 active:bg-blue-400" onMouseDown={(e) => onResizeStart(f.key, e)} />
                       </th>
                     ))}
                     {showGBKH && (
-                      <th className="px-1 py-1 font-semibold border-r border-blue-500 text-center whitespace-nowrap bg-blue-700">GB KH</th>
+                      <th className="px-1 py-1 font-semibold border-r border-blue-500 text-center whitespace-nowrap bg-blue-700 relative" style={colWidths.gbkh ? { width: colWidths.gbkh } : undefined}>
+                        GB KH
+                        <div className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-400/50 active:bg-blue-400" onMouseDown={(e) => onResizeStart('gbkh', e)} />
+                      </th>
                     )}
                     {showGBKH && (showChenhLech || showPctChenhLech) && (
-                      <th className="px-1 py-1 font-semibold border-r border-blue-500 text-center whitespace-nowrap bg-blue-700">
+                      <th className="px-1 py-1 font-semibold border-r border-blue-500 text-center whitespace-nowrap bg-blue-700 relative" style={colWidths.cl ? { width: colWidths.cl } : undefined}>
                         {showChenhLech && showPctChenhLech ? 'CL / %' : showChenhLech ? 'Chênh lệch' : '% CL'}
+                        <div className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-400/50 active:bg-blue-400" onMouseDown={(e) => onResizeStart('cl', e)} />
                       </th>
                     )}
                     <th className="px-1 py-1 font-semibold text-center">TT</th>

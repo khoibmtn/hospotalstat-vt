@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { logoutUser } from '../../services/authService';
+import { logoutUser, updateUser, updateUserPassword } from '../../services/authService';
 import { getSettings } from '../../services/settingsService';
 import { ROLES, ROLE_LABELS } from '../../utils/constants';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet';
-import { Menu, LayoutDashboard, Edit3, PieChart, Lock, Settings, LogOut, Hospital } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Menu, LayoutDashboard, Edit3, PieChart, Lock, Settings, LogOut, Hospital, UserCog, Check, AlertCircle } from 'lucide-react';
 
 export default function AppShell() {
   const { user } = useAuth();
@@ -14,6 +17,15 @@ export default function AppShell() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [searchParams] = useSearchParams();
   const isTvMode = searchParams.get('mode') === 'tv';
+
+  // Account dialog state
+  const [accountDialogOpen, setAccountDialogOpen] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [currentPwd, setCurrentPwd] = useState('');
+  const [newPwd, setNewPwd] = useState('');
+  const [confirmPwd, setConfirmPwd] = useState('');
+  const [accountMsg, setAccountMsg] = useState({ type: '', text: '' });
+  const [accountLoading, setAccountLoading] = useState(false);
 
   // Hospital branding from settings
   const [brandName, setBrandName] = useState('');
@@ -70,6 +82,46 @@ export default function AppShell() {
   ) : (
     <Hospital className="h-5 w-5 text-blue-400" />
   );
+
+  const openAccountDialog = () => {
+    setEditName(user?.displayName || '');
+    setCurrentPwd('');
+    setNewPwd('');
+    setConfirmPwd('');
+    setAccountMsg({ type: '', text: '' });
+    setAccountDialogOpen(true);
+  };
+
+  const handleSaveName = async () => {
+    if (!editName.trim()) return;
+    setAccountLoading(true);
+    try {
+      await updateUser(user.uid, { displayName: editName.trim(), fullName: editName.trim() });
+      setAccountMsg({ type: 'success', text: 'Đã cập nhật tên thành công.' });
+      window.location.reload();
+    } catch (err) {
+      setAccountMsg({ type: 'error', text: err.message || 'Lỗi cập nhật tên.' });
+    } finally {
+      setAccountLoading(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    setAccountMsg({ type: '', text: '' });
+    if (!currentPwd) { setAccountMsg({ type: 'error', text: 'Nhập mật khẩu hiện tại.' }); return; }
+    if (newPwd.length < 6) { setAccountMsg({ type: 'error', text: 'Mật khẩu mới tối thiểu 6 ký tự.' }); return; }
+    if (newPwd !== confirmPwd) { setAccountMsg({ type: 'error', text: 'Mật khẩu mới không khớp.' }); return; }
+    setAccountLoading(true);
+    try {
+      await updateUserPassword(currentPwd, newPwd);
+      setAccountMsg({ type: 'success', text: 'Đã đổi mật khẩu thành công!' });
+      setCurrentPwd(''); setNewPwd(''); setConfirmPwd('');
+    } catch (err) {
+      setAccountMsg({ type: 'error', text: err.message || 'Lỗi đổi mật khẩu.' });
+    } finally {
+      setAccountLoading(false);
+    }
+  };
 
   const navContent = (
     <div className="flex flex-col h-full bg-slate-900 text-white w-64 max-w-[80vw]">
@@ -165,10 +217,16 @@ export default function AppShell() {
       </nav>
 
       <div className="p-4 border-t border-slate-800 mt-auto shrink-0">
-        <div className="flex flex-col gap-1 px-3 py-2 mb-2">
-          <span className="text-sm font-semibold text-white truncate" title={user?.displayName}>{user?.displayName}</span>
-          <span className="text-xs text-slate-400 truncate">{ROLE_LABELS[user?.role] || user?.role}</span>
-        </div>
+        <button
+          onClick={openAccountDialog}
+          className="flex w-full items-center gap-3 px-3 py-2 rounded-md transition-colors text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white mb-1 group"
+        >
+          <UserCog className="h-4 w-4 text-slate-400 group-hover:text-white" />
+          <div className="flex flex-col items-start min-w-0">
+            <span className="text-sm font-semibold text-white truncate max-w-full" title={user?.displayName}>{user?.displayName}</span>
+            <span className="text-[10px] text-slate-500 truncate">{ROLE_LABELS[user?.role] || user?.role}</span>
+          </div>
+        </button>
         <button
           onClick={handleLogout}
           className="flex w-full items-center gap-3 px-3 py-2 rounded-md transition-colors text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white"
@@ -182,6 +240,86 @@ export default function AppShell() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
+      {/* Account Dialog */}
+      <Dialog open={accountDialogOpen} onOpenChange={setAccountDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg">
+              <UserCog className="w-5 h-5 text-blue-600" />
+              Quản lý tài khoản
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-5 pt-2">
+            {accountMsg.text && (
+              <div className={`flex items-center gap-2 p-2.5 rounded-lg text-sm font-medium ${
+                accountMsg.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-600 border border-red-200'
+              }`}>
+                {accountMsg.type === 'success' ? <Check className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                {accountMsg.text}
+              </div>
+            )}
+
+            {/* Nickname (read-only) */}
+            <div className="space-y-1.5">
+              <Label className="text-slate-600 text-xs font-semibold uppercase tracking-wide">Tên đăng nhập</Label>
+              <Input value={user?.nickname || ''} disabled className="bg-slate-100 text-slate-500 cursor-not-allowed" />
+            </div>
+
+            {/* Display Name */}
+            <div className="space-y-1.5">
+              <Label className="text-slate-700 font-medium">Họ và tên</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  placeholder="Nhập họ tên"
+                  className="flex-1"
+                />
+                <Button
+                  size="sm"
+                  onClick={handleSaveName}
+                  disabled={accountLoading || editName.trim() === (user?.displayName || '')}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4"
+                >
+                  Lưu
+                </Button>
+              </div>
+            </div>
+
+            <div className="h-px bg-slate-200" />
+
+            {/* Change Password */}
+            <div className="space-y-3">
+              <Label className="text-slate-700 font-semibold">Đổi mật khẩu</Label>
+              <Input
+                type="password"
+                placeholder="Mật khẩu hiện tại"
+                value={currentPwd}
+                onChange={(e) => setCurrentPwd(e.target.value)}
+              />
+              <Input
+                type="password"
+                placeholder="Mật khẩu mới (tối thiểu 6 ký tự)"
+                value={newPwd}
+                onChange={(e) => setNewPwd(e.target.value)}
+              />
+              <Input
+                type="password"
+                placeholder="Nhập lại mật khẩu mới"
+                value={confirmPwd}
+                onChange={(e) => setConfirmPwd(e.target.value)}
+              />
+              <Button
+                onClick={handleChangePassword}
+                disabled={accountLoading || !currentPwd || !newPwd}
+                className="w-full bg-slate-800 hover:bg-slate-900 text-white"
+              >
+                {accountLoading ? 'Đang xử lý...' : 'Đổi mật khẩu'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
       {/* Mobile Header */}
       {!isTvMode && (
       <div className="md:hidden flex items-center justify-between p-4 bg-slate-900 border-b border-slate-800 text-white shadow-sm shrink-0">

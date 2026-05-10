@@ -4,6 +4,8 @@ import { getReportsByDateRange, getReportsByDepartment } from '../services/repor
 import { getDepartments, getFacilities } from '../services/departmentService';
 import { getDiseaseCatalog } from '../services/diseaseCatalogService';
 import { getSettings } from '../services/settingsService';
+import { useAuth } from '../contexts/AuthContext';
+import { ROLES } from '../utils/constants';
 import { aggregateRows } from '../utils/computedColumns';
 import { exportReportsToExcel } from '../utils/excelUtils';
 import { format, parse, subDays, startOfMonth } from 'date-fns';
@@ -26,18 +28,22 @@ const DATE_FMT = 'yyyy-MM-dd';
 
 export default function SummaryPage() {
   const [searchParams] = useSearchParams();
+  const { user } = useAuth();
   const today = format(new Date(), DATE_FMT);
 
-  // Read initial values from query params (e.g. from Dashboard deep-link)
   const qTab = searchParams.get('tab');
   const qFrom = searchParams.get('from');
   const qTo = searchParams.get('to');
+
+  // Default to user's department for non-admin users
+  const isAdminOrKehoach = user?.role === ROLES.ADMIN || user?.role === ROLES.KEHOACH;
+  const defaultDept = isAdminOrKehoach ? 'all' : (user?.primaryDepartmentId || 'all');
 
   const [startDate, setStartDate] = useState(qFrom || format(subDays(new Date(), 6), DATE_FMT));
   const [endDate, setEndDate] = useState(qTo || today);
   const [departments, setDepartments] = useState([]);
   const [facilities, setFacilities] = useState([]);
-  const [selectedDept, setSelectedDept] = useState('all');
+  const [selectedDept, setSelectedDept] = useState(defaultDept);
   const [rawReports, setRawReports] = useState([]);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState(qTab || 'overview');
@@ -45,7 +51,6 @@ export default function SummaryPage() {
   const [settings, setSettings] = useState({});
   const fetchRef = useRef(0);
 
-  // Load facilities & departments on mount
   useEffect(() => {
     async function loadConfig() {
       const [facs, depts, catalog, sets] = await Promise.all([getFacilities(), getDepartments(), getDiseaseCatalog(), getSettings()]);
