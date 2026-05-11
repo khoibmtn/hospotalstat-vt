@@ -5,6 +5,7 @@ import {
   updatePassword,
   EmailAuthProvider,
   reauthenticateWithCredential,
+  deleteUser as deleteAuthUser,
 } from 'firebase/auth';
 import {
   doc,
@@ -47,41 +48,63 @@ export async function registerUser(nickname, password, { role, departmentId, ful
   }
   const email = generateEmail(cleanNick);
 
-  // Check if nickname already exists
-  const existingQuery = query(
-    collection(db, 'users'),
-    where('nickname', '==', cleanNick)
-  );
-  const existing = await getDocs(existingQuery);
-  if (!existing.empty) {
-    throw new Error('Nickname đã tồn tại. Vui lòng chọn nickname khác.');
+  // Step 1: Create Firebase Auth user FIRST — this authenticates the user,
+  // which is required for Firestore queries on the `users` collection.
+  // (Firestore rule: `users` requires isAuthenticated() for read)
+  let credential;
+  try {
+    credential = await createUserWithEmailAndPassword(auth, email, password);
+  } catch (err) {
+    if (err.code === 'auth/email-already-in-use') {
+      throw new Error('Nickname đã tồn tại. Vui lòng chọn nickname khác.');
+    }
+    throw err;
   }
-
-  const credential = await createUserWithEmailAndPassword(auth, email, password);
   const uid = credential.user.uid;
 
-  // Get settings to check if approval is required
-  const settingsDoc = await getDoc(doc(db, 'settings', 'config'));
-  const requireApproval = settingsDoc.exists()
-    ? settingsDoc.data().requireApproval
-    : false;
+  // Step 2: Now authenticated — check if nickname already exists in Firestore
+  // (handles edge case where email is unique but nickname field is duplicated)
+  try {
+    const existingQuery = query(
+      collection(db, 'users'),
+      where('nickname', '==', cleanNick)
+    );
+    const existing = await getDocs(existingQuery);
+    if (!existing.empty) {
+      // Cleanup: delete the auth user we just created
+      await deleteAuthUser(credential.user);
+      throw new Error('Nickname đã tồn tại. Vui lòng chọn nickname khác.');
+    }
 
-  const userData = {
-    nickname: cleanNick,
-    displayName: fullName || cleanNick,
-    fullName: fullName || '',
-    email,
-    role,
-    position: position || '',
-    title: title || '',
-    primaryDepartmentId: departmentId,
-    additionalDepartments: [],
-    approved: role === ROLES.ADMIN ? true : !requireApproval,
-    createdAt: serverTimestamp(),
-  };
+    // Step 3: Get settings to check if approval is required
+    const settingsDoc = await getDoc(doc(db, 'settings', 'config'));
+    const requireApproval = settingsDoc.exists()
+      ? settingsDoc.data().requireApproval
+      : false;
 
-  await setDoc(doc(db, 'users', uid), userData);
-  return { uid, ...userData };
+    const userData = {
+      nickname: cleanNick,
+      displayName: fullName || cleanNick,
+      fullName: fullName || '',
+      email,
+      role,
+      position: position || '',
+      title: title || '',
+      primaryDepartmentId: departmentId,
+      additionalDepartments: [],
+      approved: role === ROLES.ADMIN ? true : !requireApproval,
+      createdAt: serverTimestamp(),
+    };
+
+    await setDoc(doc(db, 'users', uid), userData);
+    return { uid, ...userData };
+  } catch (err) {
+    // If anything fails after auth user creation, clean up the orphaned auth user
+    if (err.message !== 'Nickname đã tồn tại. Vui lòng chọn nickname khác.') {
+      try { await deleteAuthUser(credential.user); } catch { /* best-effort cleanup */ }
+    }
+    throw err;
+  }
 }
 
 export async function loginUser(nickname, password) {
